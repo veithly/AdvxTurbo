@@ -38,7 +38,7 @@ export function Home() {
           <Avatar role="boss" size={56} />
         </div>
         <h1>{t('app.title')}</h1>
-        <div className="en">BLAME GAME · {t('app.subtitle')}</div>
+        <div className="en">CATCH THE HOTSPOT · {t('app.subtitle')}</div>
         <div className="tagline">「{t('app.tagline')}」<br /><span className="muted">{t('app.tagline.en')}</span></div>
         <div className="cta">
           <button className="btn primary" onClick={playDemo}>▶ {t('home.playDemo')}</button>

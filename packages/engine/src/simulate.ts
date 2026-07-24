@@ -1,4 +1,4 @@
-import { EVENT_DECK, ZONE_BY_ID, BOSS_PATROL, phaseAt } from '@blame/shared';
+import { EVENT_DECK, ZONE_BY_ID, BOSS_PATROL, phaseAt, zoneAt, MAP_WIDTH, MAP_HEIGHT } from '@blame/shared';
 import type { MatchReplay, ReplayFrame, SimulateInput, Severity } from '@blame/shared';
 import { initState, type MatchState, type EngineWorker } from './state.js';
 import { decide, advanceAction, spawnBug } from './actions.js';
@@ -14,6 +14,135 @@ function log(state: MatchState, kind: string, extra: Record<string, unknown> = {
   state.timeline.push({ tick: state.tick, kind, ...extra });
 }
 
+// —— 抓热点：只有在「工位区」开热点才能推进项目进度 ——
+const WORKSTATION_ZONES = new Set(['devDesk', 'designDesk', 'qa', 'serverRoom']);
+const MAX_DQ = 6; // 一局最多取消资格人数（戴戯剧但不全灭）
+
+// 帧标签（驱动前端渲染/解说/气泡）
+function hotspotLabel(state: MatchState, w: EngineWorker): string {
+  if (w.disqualified) return 'dq';
+  if (state.tick < w.bustedUntilTick) return 'busted';
+  if (w.hotspotOn) return WORKSTATION_ZONES.has(w.zone) ? 'building' : 'hotspot';
+  const l = w.currentAction?.label;
+  if (l === 'moving') return 'moving';
+  if (l === 'coffee') return 'resting';
+  return 'lurking';
+}
+
+function occupiedByBuilder(state: MatchState, x: number, y: number, exceptId: string): boolean {
+  return state.workers.some((w) => !w.disqualified && w.id !== exceptId && w.position[0] === x && w.position[1] === y);
+}
+
+// 逃离：向远离最近工作人员的方向走一格（不踩墙/不与其他选手重叠）
+function fleeStep(state: MatchState, w: EngineWorker, sp: [number, number]) {
+  const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+  let best = w.position; let bestD = manhattan(w.position, sp);
+  for (const [dx, dy] of dirs) {
+    const nx = w.position[0] + dx, ny = w.position[1] + dy;
+    if (nx < 1 || ny < 1 || nx >= MAP_WIDTH - 1 || ny >= MAP_HEIGHT - 1) continue;
+    if (!state.walkable[ny] || !state.walkable[ny][nx]) continue;
+    if (occupiedByBuilder(state, nx, ny, w.id)) continue;
+    const d = manhattan([nx, ny], sp);
+    if (d > bestD) { bestD = d; best = [nx, ny]; }
+  }
+  w.position = [best[0], best[1]]; w.zone = zoneAt(best[0], best[1]);
+}
+
+// 选手之间不能重叠：同格的高座位选手移到相邻空格
+function resolveOverlaps(state: MatchState) {
+  const seen = new Set<string>();
+  for (const w of state.workers) {
+    if (w.disqualified) continue;
+    const key = w.position[0] + ',' + w.position[1];
+    if (!seen.has(key)) { seen.add(key); continue; }
+    const dirs = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]];
+    for (const [dx, dy] of dirs) {
+      const nx = w.position[0] + dx, ny = w.position[1] + dy;
+      if (nx < 1 || ny < 1 || nx >= MAP_WIDTH - 1 || ny >= MAP_HEIGHT - 1) continue;
+      if (!state.walkable[ny] || !state.walkable[ny][nx]) continue;
+      if (seen.has(nx + ',' + ny) || occupiedByBuilder(state, nx, ny, w.id)) continue;
+      w.position = [nx, ny]; w.zone = zoneAt(nx, ny); seen.add(nx + ',' + ny); break;
+    }
+  }
+}
+
+/**
+ * 抓热点核心循环（确定性）：
+ * - 不开热点也极慢地涨；开热点/领 Qoder 额度则大幅增长。
+ * - 工作人员靠近(≤2)时选手大概率逃离+关热点；少数“贪婪”者不逃→可能被重合捕捉。
+ */
+function applyHotspotDynamics(state: MatchState) {
+  for (const w of state.workers) {
+    if (w.disqualified || state.tick < w.bustedUntilTick) { w.hotspotOn = false; w.signal = clamp(w.signal - 4, 0, 100); w.suspicion = w.signal; continue; }
+    let nd = 99; let ns: [number, number] | null = null;
+    for (const s of state.staff) { const d = manhattan(s.position, w.position); if (d < nd) { nd = d; ns = s.position; } }
+    const threat = nd <= 2;
+    const willFlee = threat && w.rng.chance(8000); // 80% 逃离；20% 贪婪继续 build → 风险
+    if (threat && willFlee && ns) {
+      fleeStep(state, w, ns);
+      w.hotspotOn = false; w.signal = clamp(w.signal - 2, 0, 100); w.energy = clamp(w.energy + 0.1, 0, 100);
+      w.suspicion = w.signal; continue;
+    }
+    const atWs = WORKSTATION_ZONES.has(w.zone);
+    const qoder = state.tick < w.qoderUntilTick;
+    w.hotspotOn = atWs && w.energy > 8;
+    let rate = 0.05;
+    if (w.hotspotOn) rate = qoder ? 3 : 1;
+    else if (qoder) rate = 0.6;
+    w.visibleContribution += rate;
+    w.verifiedContribution += rate;
+    state.releaseProgress = clamp(state.releaseProgress + rate * 0.5, 0, 200);
+    if (w.hotspotOn) { w.buildTicks++; w.signal = clamp(w.signal + 3, 0, 100); w.energy = clamp(w.energy - 0.4, 0, 100); }
+    else { w.signal = clamp(w.signal - 2, 0, 100); w.energy = clamp(w.energy + 0.15, 0, 100); }
+    w.suspicion = w.signal;
+  }
+  resolveOverlaps(state);
+}
+
+// AI 群演选手的便宜移动（不跑沙盒）：走向分配的工位区，到了就停下由 applyHotspotDynamics 自动开热点 build
+const FILLER_HOMES = ['devDesk', 'designDesk', 'qa', 'serverRoom'];
+function moveFiller(state: MatchState, w: EngineWorker) {
+  const home = FILLER_HOMES[w.seat % FILLER_HOMES.length];
+  const spot = ZONE_BY_ID[home]?.spot;
+  if (!spot) return;
+  if (w.zone === home) { w.currentAction = undefined; return; }
+  const nx = nextStep(state.walkable, w.position, spot);
+  if (nx) { w.position = nx; w.zone = zoneAt(nx[0], nx[1]); w.currentAction = { type: 'moving', label: 'moving', startedAtTick: state.tick, endsAtTick: state.tick + 1 }; }
+}
+
+function disqualify(state: MatchState, w: EngineWorker) {  w.disqualified = true; w.hotspotOn = false; w.signal = 0; w.suspicion = 0;
+  w.visibleBlame = 100; w.bustedUntilTick = 1e9; w.violations++;
+  log(state, 'disqualified', { workerId: w.id });
+}
+
+/** 5 名工作人员在场内巡逻排查（各走不同路线）：只有走到与选手同一格(重合)且对方正开热点才捕捉→取消参赛资格 */
+function updateStaff(state: MatchState) {
+  for (const s of state.staff) {
+    const goalZone = BOSS_PATROL[s.routeIdx % BOSS_PATROL.length];
+    const spot = ZONE_BY_ID[goalZone]?.spot;
+    if (spot) {
+      if (manhattan(s.position, spot) === 0) {
+        s.routeIdx++;
+      } else {
+        const nx = nextStep(state.walkable, s.position, spot);
+        if (nx) { s.facing = [nx[0] - s.position[0], nx[1] - s.position[1]] as [number, number]; if (s.facing[0] === 0 && s.facing[1] === 0) s.facing = [-1, 0]; s.position = nx; s.zone = zoneAt(nx[0], nx[1]); }
+      }
+    }
+    // 重合排查：站到正在开热点的选手头上 → 当场取消资格（一局最多拓 MAX_DQ 人，避免全灭）
+    for (const w of state.workers) {
+      if (w.disqualified) continue;
+      if (w.position[0] === s.position[0] && w.position[1] === s.position[1] && w.hotspotOn) {
+        const dqCount = state.workers.reduce((n, x) => n + (x.disqualified ? 1 : 0), 0);
+        if (dqCount < MAX_DQ) disqualify(state, w);
+        break;
+      }
+    }
+    s.targetId = undefined;
+  }
+  // 让 context/sandbox 的 boss 视图跟随 staff[0]
+  if (state.staff[0]) { state.boss.position = [state.staff[0].position[0], state.staff[0].position[1]]; state.boss.facing = state.staff[0].facing; }
+}
+
 /** 主入口：运行一整局并返回结果+回放 (PRD 7.2) */
 export function simulateMatch(input: SimulateInput): MatchReplay {
   const state = initState(input);
@@ -23,15 +152,18 @@ export function simulateMatch(input: SimulateInput): MatchReplay {
     refreshFlags(state);
     maybeDrawEvent(state);
     maybeSpawnIncident(state);
-    updateBoss(state);
+    updateStaff(state);
     // 员工按座位顺序决策/推进 (确定性)
     for (const w of state.workers) {
       if (state.tick < w.crashUntilTick) continue; // 精力崩溃
+      if (w.disqualified) continue;
+      if (w.isFiller) { moveFiller(state, w); continue; } // 群演走便宜路径，不跑沙盒
       if (w.currentAction) advanceAction(state, w);
       if (!w.currentAction) decide(state, w);
     }
     applyBugDynamics(state);
     applyPassiveResources(state);
+    applyHotspotDynamics(state);
     recordFrame(state);
   }
 
@@ -162,28 +294,22 @@ function updateBoss(state: MatchState) {
     }
   }
 
-  // 怀疑累积 (PRD 12.3)
-  let slackersSeen = 0;
+  // 网管拓展：看到正在开热点的选手→当场逐个正着（没收热点/记违规/进度回退）
+  let caught = 0;
   for (const w of state.workers) {
-    if (!bossSees(b.position, b.facing, w.position)) continue;
-    const label = w.currentAction?.label;
-    let delta = 0;
-    if (label === 'slacking') { delta = 8; slackersSeen++; }
-    else if (label === 'coffee') delta = 2;
-    else if (w.currentAction?.type === 'hide') delta = 12;
-    else if (w.currentAction?.type === 'fixing') delta = -3;
-    if (state.flags.hrCheckUntil >= state.tick && w.reputation < 40) delta += 2;
-    if (delta !== 0) {
-      const roleMul = w.role === 'intern' ? 0.75 : 1;
-      w.suspicion = clamp(w.suspicion + delta * roleMul, 0, 100);
-      if (delta > 0 && w.suspicion >= 45 && state.worldRng.chance(1500)) {
-        w.visibleBlame = clamp(w.visibleBlame + 4, 0, 100);
-        b.targetWorkerId = w.id;
-        log(state, 'boss_caught', { workerId: w.id, data: { label } });
-      }
-    }
+    if (state.tick < w.bustedUntilTick) continue;
+    if (!w.hotspotOn) continue;
+    if (!bossSees(b.position, b.facing, w.position) && manhattan(b.position, w.position) > 1) continue;
+    w.visibleContribution = Math.max(0, w.visibleContribution - 15);
+    w.violations++;
+    w.signal = 0; w.suspicion = 0; w.hotspotOn = false;
+    w.visibleBlame = clamp(w.visibleBlame + 12, 0, 100);
+    w.bustedUntilTick = state.tick + 20;
+    b.targetWorkerId = w.id;
+    log(state, 'boss_caught', { workerId: w.id, data: { label: 'hotspot' } });
+    caught++;
   }
-  if (slackersSeen >= 2) log(state, 'boss_group_slacking', { data: { count: slackersSeen } });
+  if (caught >= 2) log(state, 'boss_group_slacking', { data: { count: caught } });
 }
 
 function applyBugDynamics(state: MatchState) {
@@ -231,17 +357,25 @@ function recordFrame(state: MatchState, forcePhase?: string) {
     releaseProgress: Math.round(state.releaseProgress),
     stability: Math.round(state.stability),
     techDebt: Math.round(state.techDebt),
-    boss: { pos: [state.boss.position[0], state.boss.position[1]], state: state.boss.state },
-    workers: state.workers.map((w) => ({
-      id: w.id,
-      pos: [w.position[0], w.position[1]],
-      label: w.currentAction?.label || 'idle',
-      energy: Math.round(w.energy),
-      stress: Math.round(w.stress),
-      blame: Math.round(w.visibleBlame),
-      contribution: Math.round(w.visibleContribution),
-      suspicion: Math.round(w.suspicion),
-    })),
+    boss: { pos: [state.staff[0] ? state.staff[0].position[0] : state.boss.position[0], state.staff[0] ? state.staff[0].position[1] : state.boss.position[1]], state: 'Patrol' },
+    workers: [
+      ...state.workers.map((w) => ({
+        id: w.id,
+        pos: [w.position[0], w.position[1]] as [number, number],
+        label: hotspotLabel(state, w),
+        energy: Math.round(w.energy),
+        stress: Math.round(w.stress),
+        blame: Math.round(w.visibleBlame),
+        contribution: Math.round(w.visibleContribution),
+        suspicion: Math.round(w.suspicion),
+      })),
+      ...state.staff.map((s) => ({
+        id: s.id,
+        pos: [s.position[0], s.position[1]] as [number, number],
+        label: 'staff',
+        energy: 100, stress: 0, blame: 0, contribution: 0, suspicion: 0,
+      })),
+    ],
     bugs: state.bugs.map((b) => ({ id: b.id, severity: b.severity, status: b.status, owner: b.currentOwnerId })),
     activeEvents: state.activeEvents.filter((e) => state.tick < e.endsAtTick).map((e) => e.cardId),
   };

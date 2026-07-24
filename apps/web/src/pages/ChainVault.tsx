@@ -4,6 +4,7 @@ import { api } from '../api.js';
 import { useAuth } from '../store.js';
 import { Avatar, Loading, useToast } from '../ui.js';
 import { sfx } from '../audio.js';
+import { useWallet, sendTx, explorerTx, explorerAddr, hasWallet, INJECTIVE_TESTNET, WalletButton } from '../wallet.js';
 
 function randAddr() {
   return '0x' + Array.from({ length: 40 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
@@ -12,13 +13,16 @@ function randAddr() {
 export function ChainVault() {
   const t = useT();
   const { user, wallet, refreshWallet } = useAuth();
+  const w2 = useWallet();
   const toast = useToast();
   const [info, setInfo] = useState<any>(null);
   const [workers, setWorkers] = useState<any[]>([]);
   const [status, setStatus] = useState<Record<string, any>>({});
   const [events, setEvents] = useState<any[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
+  const [anchors, setAnchors] = useState<any[]>([]);
   const [balance, setBalance] = useState<string | null>(null);
+  const [txBusy, setTxBusy] = useState('');
 
   useEffect(() => {
     api.get('/api/chain/info').then(setInfo).catch(() => {});
@@ -26,6 +30,7 @@ export function ChainVault() {
     if (user) {
       api.get('/api/workers').then(setWorkers).catch(() => {});
       api.get('/api/chain/claims').then(setClaims).catch(() => {});
+      api.get('/api/chain/anchors').then(setAnchors).catch(() => {});
     }
   }, [user]);
 
@@ -43,6 +48,21 @@ export function ChainVault() {
     } catch {}
   }
   function err(e: any) { toast.show(e.data?.message || e.message, 'err'); }
+
+  // 用真实钱包发送链上交易 (self-anchor 携带承诺)，并回传服务端记录
+  async function walletTx(kind: string, workerId?: string) {
+    if (!w2.address) { toast.show(t('chain.connectFirst'), 'err'); await w2.connect(); return; }
+    setTxBusy(kind + (workerId || ''));
+    try {
+      const txHash = await sendTx({ payload: { kind, workerId: workerId || null, at: Date.now() } });
+      await api.post('/api/chain/record', { workerId, kind, txHash, address: w2.address, chainId: INJECTIVE_TESTNET.chainIdDec });
+      setAnchors(await api.get('/api/chain/anchors'));
+      toast.show(t('chain.anchored') + ' ' + txHash.slice(0, 10) + '…');
+      sfx('success');
+    } catch (e: any) {
+      toast.show(e?.message || 'tx failed', 'err'); sfx('error');
+    } finally { setTxBusy(''); }
+  }
 
   async function linkWallet() {
     sfx('click', 0.3);
@@ -86,6 +106,31 @@ export function ChainVault() {
       <div className="card">
         <p>{t('chain.network')}: {info.name} (chainId {info.chainId})</p>
         <p className="small muted">{info.mode === 'mock' ? t('chain.mockNote') : t('chain.liveNote')}</p>
+      </div>
+
+      {/* 真实钱包链上交易 */}
+      <div className="card" style={{ borderColor: 'var(--purple)' }}>
+        <div className="row between"><h3>⛓ {t('chain.realTx')} · Injective EVM 1439</h3><WalletButton /></div>
+        <p className="small muted">{t('chain.walletTx')} — {INJECTIVE_TESTNET.chainName}. {hasWallet() ? '' : '(MetaMask / OKX Wallet)'}</p>
+        {w2.address && (
+          <p className="small">{w2.address.slice(0, 12)}… · {w2.balance != null ? (Number(BigInt(w2.balance)) / 1e18).toFixed(4) + ' INJ' : ''} · <a href={explorerAddr(w2.address)} target="_blank" rel="noreferrer">Explorer →</a></p>
+        )}
+        <div className="row" style={{ marginTop: 6 }}>
+          <button className="btn purple sm" disabled={!!txBusy} onClick={() => walletTx('passport_mint', workers[0]?.id)}>🪩 Passport TX</button>
+          <button className="btn cyan sm" disabled={!!txBusy} onClick={() => walletTx('strategy_register', workers[0]?.id)}>📝 Strategy TX</button>
+          <button className="btn sm" disabled={!!txBusy} onClick={() => walletTx('anchor')}>⚓ Anchor TX</button>
+        </div>
+        {anchors.length > 0 && (
+          <div style={{ marginTop: 8, maxHeight: 150, overflow: 'auto' }}>
+            <div className="small muted">{t('chain.onchainHistory')}</div>
+            {anchors.map((a) => (
+              <div key={a.id} className="row between small" style={{ padding: '2px 0' }}>
+                <span className="tag purple">{a.kind}</span>
+                <a href={explorerTx(a.tx_hash)} target="_blank" rel="noreferrer"><code>{String(a.tx_hash).slice(0, 16)}…</code></a>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="card">

@@ -89,7 +89,7 @@ export function Office() {
       <div className="row" style={{ marginBottom: 16 }}>
         {workers.map((w) => (
           <div key={w.id} className={`role-pick ${sel?.id === w.id ? 'sel' : ''}`} style={{ minWidth: 110 }} onClick={() => selectWorker(w)}>
-            <Avatar role={w.role} size={48} src={avatarFromWorker(w)} />
+            <Avatar role={w.role} size={48} spec={avatarFromWorker(w)} />
             <div className="small" style={{ color: 'var(--cream)' }}>{w.name}</div>
             <div className="small muted">{Math.round(w.rating)}</div>
           </div>
@@ -99,7 +99,7 @@ export function Office() {
       {sel && ctx && (
         <div className="grid c2">
           <div className="card">
-            <div className="row"><Avatar role={sel.role} size={72} src={avatarFromWorker(sel)} /><div>
+            <div className="row"><Avatar role={sel.role} size={72} spec={avatarFromWorker(sel)} /><div>
               <h3>{sel.name}</h3>
               <span className="tag">{t('role.' + sel.role)}</span>
               <span className="tag yellow">{t(ctx.worker.rank.tier)} · {ctx.worker.rank.rating}</span>

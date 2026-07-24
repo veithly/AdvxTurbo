@@ -3,10 +3,11 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { create } from 'zustand';
 import { useI18n, useT } from './i18n/index.js';
 import { useAuth } from './store.js';
-import { api, nativeAsset } from './api.js';
+import { api } from './api.js';
 import { toggleMute, isMuted, sfx } from './audio.js';
-
-export { nativeAsset, assetUrl, audioUrl } from './api.js';
+import { PixelSprite } from './PixelSprite.js';
+import type { CharSpec } from './pixelart.js';
+import { WalletButton } from './wallet.js';
 
 // ---- config cache ----
 let configCache: any = null;
@@ -22,39 +23,20 @@ export function useConfig() {
   return cfg;
 }
 
-const ROLE_ASSET: Record<string, string> = {
-  engineer: 'characters/01_orange_cat_programmer.png',
-  pm: 'characters/02_capybara_product_manager.png',
-  qa: 'characters/03_goose_qa_tester.png',
-  sre: 'characters/04_raccoon_devops.png',
-  designer: 'characters/05_shiba_designer.png',
-  intern: 'characters/06_hamster_intern.png',
-  boss: 'characters/07_bulldog_boss.png',
-};
-export function roleAsset(role: string): string {
-  return nativeAsset(ROLE_ASSET[role] || ROLE_ASSET.engineer);
-}
-
-// 自定义形象 URL 解析（相对路径走 API base / proxy）
-export function resolveAvatar(url?: string): string | undefined {
-  if (!url) return undefined;
-  if (url.startsWith('http') || url.startsWith('data:')) return url;
-  return api.base + url;
-}
-
-export function avatarFromWorker(w: any): string | undefined {
+// 从员工的 appearance_json 读取代码渲染形象 spec（自定义外观）
+export function avatarFromWorker(w: any): Partial<CharSpec> | undefined {
   if (!w) return undefined;
   try {
     const a = typeof w.appearance_json === 'string' ? JSON.parse(w.appearance_json || '{}') : w.appearance || {};
-    return resolveAvatar(a?.avatarUrl);
+    return a?.charSpec || undefined;
   } catch {
     return undefined;
   }
 }
 
-export function Avatar({ role, size = 64, className = '', src }: { role: string; size?: number; className?: string; src?: string }) {
-  const resolved = resolveAvatar(src) || roleAsset(role);
-  return <img className={`avatar sprite ${className}`} src={resolved} width={size} height={size} alt={role} style={{ width: size, height: size }} onError={(e) => { (e.currentTarget as HTMLImageElement).src = roleAsset(role); }} />;
+// 代码渲染的角色头像（不使用任何 PNG）
+export function Avatar({ role, size = 64, className = '', spec }: { role: string; size?: number; className?: string; spec?: Partial<CharSpec> }) {
+  return <PixelSprite role={role} size={size} className={'avatar ' + className} spec={spec} />;
 }
 
 export function Bar({ value, max = 100, color = '', label }: { value: number; max?: number; color?: string; label?: string }) {
@@ -89,26 +71,38 @@ export function Nav() {
   const { user, logout } = useAuth();
   const nav = useNavigate();
   const [muted, setMuted] = useState(isMuted());
+  const [open, setOpen] = useState(false);
 
-  const links: Array<[string, string]> = [
-    ['/', 'nav.home'], ['/office', 'nav.office'], ['/lab', 'nav.agentLab'], ['/arena', 'nav.arena'],
-    ['/tournaments', 'nav.tournaments'], ['/replays', 'nav.replays'], ['/leaderboard', 'nav.leaderboard'],
-    ['/chain', 'nav.chainVault'], ['/store', 'nav.store'], ['/docs', 'nav.docs'],
+  const links: Array<[string, string, string]> = [
+    ['/', 'nav.home', '🏠'], ['/office', 'nav.office', '🏢'], ['/lab', 'nav.agentLab', '🧪'], ['/arena', 'nav.arena', '⚔'],
+    ['/tournaments', 'nav.tournaments', '🏆'], ['/replays', 'nav.replays', '🎬'], ['/leaderboard', 'nav.leaderboard', '📊'],
+    ['/economy', 'nav.economy', '💰'], ['/chain', 'nav.chainVault', '⛓'], ['/store', 'nav.store', '🛍'], ['/docs', 'nav.docs', '📖'],
   ];
 
   return (
     <nav className="nav">
-      <NavLink to="/" className="brand">
+      <NavLink to="/" className="brand" onClick={() => setOpen(false)}>
         {t('app.title')}
-        <small>BLAME GAME</small>
+        <small>CATCH THE HOTSPOT</small>
       </NavLink>
-      {links.map(([to, key]) => (
-        <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => 'navlink' + (isActive ? ' active' : '')} onClick={() => sfx('click', 0.3)}>
-          {t(key)}
-        </NavLink>
-      ))}
+      <div className="menu-wrap">
+        <button className="btn sm" onClick={() => { setOpen((o) => !o); sfx('click', 0.3); }}>☰ {t('nav.menu')}</button>
+        {open && (
+          <>
+            <div className="menu-backdrop" onClick={() => setOpen(false)} />
+            <div className="menu-panel">
+              {links.map(([to, key, icon]) => (
+                <NavLink key={to} to={to} end={to === '/'} className={({ isActive }) => 'menu-item' + (isActive ? ' active' : '')} onClick={() => { setOpen(false); sfx('click', 0.3); }}>
+                  <span className="menu-ico">{icon}</span> {t(key)}
+                </NavLink>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
       <span className="spacer" />
       <div className="navctl">
+        <WalletButton />
         <button className="btn sm" onClick={() => { const m = toggleMute(); setMuted(m); }} title="mute">{muted ? '🔇' : '🔊'}</button>
         <button className="btn sm" onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}>{locale === 'zh' ? 'EN' : '中'}</button>
         {user ? (

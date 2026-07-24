@@ -5,11 +5,11 @@ import type { RoleId } from '@blame/shared';
 import { getPassport, mintPassport } from '../chain/gateway.js';
 import { walletFor } from './accounts.js';
 
-export function createWorker(userId: string, name: string, role: RoleId, appearance: object, personality: string) {
+export function createWorker(userId: string, name: string, role: RoleId, appearance: object, personality: string, agentTool = 'claude_code') {
   const wid = id('wrk');
   db.prepare(
-    'INSERT INTO workers (id, user_id, name, role, appearance_json, personality_text, status, public_challenge_enabled, created_at) VALUES (?,?,?,?,?,?,?,?,?)'
-  ).run(wid, userId, name, role, JSON.stringify(appearance), personality, 'active', 1, now());
+    'INSERT INTO workers (id, user_id, name, role, appearance_json, personality_text, status, public_challenge_enabled, agent_tool, created_at) VALUES (?,?,?,?,?,?,?,?,?,?)'
+  ).run(wid, userId, name, role, JSON.stringify(appearance), personality, 'active', 1, agentTool || 'claude_code', now());
   // 初始 v1.0 策略
   const vid = id('ver');
   const code = DEFAULT_STRATEGY;

@@ -4,6 +4,7 @@ import { useT } from '../i18n/index.js';
 import { api } from '../api.js';
 import { useAuth } from '../store.js';
 import { Avatar, useToast, useConfig } from '../ui.js';
+import { ProviderLogo } from '../ProviderLogo.js';
 import { sfx } from '../audio.js';
 
 const COLORS = ['#D8702B', '#7B53A5', '#4B8955', '#499CBE', '#E85838', '#E8BE49'];
@@ -23,16 +24,17 @@ export function CreateWorker() {
   const [worker, setWorker] = useState<any>(null);
   const [keyPlain, setKeyPlain] = useState<string>('');
   const [prompt, setPrompt] = useState('');
-  const [avatarUrl, setAvatarUrl] = useState('');
+  const [charSpec, setCharSpec] = useState<any>(null);
   const [avatarMode, setAvatarMode] = useState('');
   const [generating, setGenerating] = useState(false);
+  const [agentTool, setAgentTool] = useState('claude_code');
 
   async function genAvatar() {
     setGenerating(true);
     sfx('click');
     try {
       const r = await api.post('/api/appearance/generate', { role, prompt });
-      setAvatarUrl(r.url);
+      setCharSpec(r.charSpec);
       setAvatarMode(r.mode);
       sfx('success');
     } catch (e: any) {
@@ -51,7 +53,7 @@ export function CreateWorker() {
   async function finish() {
     sfx('click');
     try {
-      const w = await api.post('/api/workers', { name: name || 'Worker', role, appearance: { color, avatarUrl }, personality });
+      const w = await api.post('/api/workers', { name: name || 'Worker', role, appearance: { color, charSpec }, personality, agentTool });
       const key = await api.post(`/api/workers/${w.id}/keys`, { name: 'primary' });
       setWorker(w);
       setKeyPlain(key.plaintext);
@@ -78,7 +80,7 @@ export function CreateWorker() {
       {step === 0 && (
         <div className="card">
           <div className="row" style={{ justifyContent: 'center' }}>
-            <div style={{ background: color, padding: 8, border: '3px solid var(--outline)' }}><Avatar role={role} size={96} src={avatarUrl} /></div>
+            <div style={{ background: color, padding: 8, border: '3px solid var(--outline)' }}><Avatar role={role} size={96} spec={charSpec || undefined} /></div>
           </div>
           <label>{t('create.name')}</label>
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Rollback Raccoon" />
@@ -86,6 +88,16 @@ export function CreateWorker() {
           <div className="row">
             {COLORS.map((c) => (
               <div key={c} onClick={() => setColor(c)} style={{ width: 34, height: 34, background: c, border: color === c ? '3px solid var(--yellow)' : '3px solid var(--outline)', cursor: 'pointer' }} />
+            ))}
+          </div>
+
+          <label style={{ marginTop: 14 }}>🤖 {t('create.agentTool')}</label>
+          <p className="small muted">{t('create.agentToolHint')}</p>
+          <div className="row" style={{ flexWrap: 'wrap', gap: 6 }}>
+            {(cfg?.agentProviders || []).map((ap: any) => (
+              <button key={ap.id} className={`btn sm ${agentTool === ap.id ? 'primary' : ''}`} style={{ display: 'inline-flex', alignItems: 'center', gap: 6 }} onClick={() => { setAgentTool(ap.id); sfx('click', 0.3); }}>
+                <ProviderLogo id={ap.id} size={18} /> {ap.name}
+              </button>
             ))}
           </div>
 
@@ -99,7 +111,7 @@ export function CreateWorker() {
           <textarea rows={2} value={prompt} onChange={(e) => setPrompt(e.target.value)} placeholder={t('create.avatarPrompt')} />
           <div className="row" style={{ marginTop: 8 }}>
             <button className="btn purple" disabled={generating} onClick={genAvatar}>{generating ? <span className="spin">🎨</span> : '🎨'} {generating ? t('create.generating') : t('create.generate')}</button>
-            {avatarUrl && <button className="btn sm" onClick={() => { setAvatarUrl(''); setAvatarMode(''); }}>{t('create.useDefault')}</button>}
+            {charSpec && <button className="btn sm" onClick={() => { setCharSpec(null); setAvatarMode(''); }}>{t('create.useDefault')}</button>}
             {avatarMode && <span className={`tag ${avatarMode === 'ai' ? 'green' : 'gray'}`}>{avatarMode === 'ai' ? t('create.aiAvatar') : t('create.procedural')}</span>}
           </div>
 
@@ -145,7 +157,7 @@ export function CreateWorker() {
 
       {step === 3 && worker && (
         <div className="card">
-          <div className="row"><Avatar role={role} size={72} src={avatarUrl} /><div><h3>{worker.name}</h3><span className="tag">{t('role.' + role)}</span>{worker.passport_token_id && <span className="tag cyan">⛓ {t('office.nft')} #{worker.passport_token_id}</span>}</div></div>
+          <div className="row"><Avatar role={role} size={72} spec={charSpec || undefined} /><div><h3>{worker.name}</h3><span className="tag">{t('role.' + role)}</span>{worker.passport_token_id && <span className="tag cyan">⛓ {t('office.nft')} #{worker.passport_token_id}</span>}</div></div>
           {worker.passport_token_id && <p className="small" style={{ color: 'var(--green2)' }}>✔ {t('create.nftMinted')} (#{worker.passport_token_id})</p>}
           <h3 style={{ marginTop: 12 }}>🔑 {t('office.workerKey')}</h3>
           <p className="small" style={{ color: 'var(--red2)' }}>⚠ {t('office.keyWarning')} {t('office.keyOnce')}</p>

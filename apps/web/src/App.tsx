@@ -15,6 +15,7 @@ import { Tournaments } from './pages/Tournaments.js';
 import { TournamentDetail } from './pages/TournamentDetail.js';
 import { ChainVault } from './pages/ChainVault.js';
 import { Store } from './pages/Store.js';
+import { Economy } from './pages/Economy.js';
 import { Profile } from './pages/Profile.js';
 import { Docs } from './pages/Docs.js';
 
@@ -42,6 +43,7 @@ export function App() {
         <Route path="/tournaments/:id" element={<TournamentDetail />} />
         <Route path="/chain" element={<ChainVault />} />
         <Route path="/store" element={<Store />} />
+        <Route path="/economy" element={<Economy />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/docs" element={<Docs />} />
       </Routes>

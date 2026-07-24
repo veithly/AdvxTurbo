@@ -69,6 +69,9 @@ CREATE TABLE IF NOT EXISTS workers (
   wins INTEGER DEFAULT 0,
   project_successes INTEGER DEFAULT 0,
   blame_sum REAL DEFAULT 0,
+  agent_tool TEXT DEFAULT 'claude_code',
+  win_streak INTEGER DEFAULT 0,
+  best_rating REAL DEFAULT 1200,
   created_at TEXT
 );
 
@@ -258,6 +261,9 @@ CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
 // 向后兼容：为既有 DB 增量添加列 (node:sqlite 无 IF NOT EXISTS)
 for (const c of ['winner_worker_id TEXT', 'mode_id TEXT']) {
   try { db.exec(`ALTER TABLE matches ADD COLUMN ${c}`); } catch {}
+}
+for (const c of ["agent_tool TEXT DEFAULT 'claude_code'", 'win_streak INTEGER DEFAULT 0', 'best_rating REAL DEFAULT 1200']) {
+  try { db.exec(`ALTER TABLE workers ADD COLUMN ${c}`); } catch {}
 }
 
 export function now(): string {

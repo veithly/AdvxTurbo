@@ -1,13 +1,14 @@
 import { Router, type Request, type Response, type NextFunction } from 'express';
-import { ROLES, ALL_ROLES, MVP_ROLES, DEFAULT_RULESET, STRATEGY_LIBRARY, RULESET_VERSION, GAME_MODES, APPEARANCE_TEMPLATES } from '@blame/shared';
+import { ROLES, ALL_ROLES, MVP_ROLES, DEFAULT_RULESET, STRATEGY_LIBRARY, RULESET_VERSION, GAME_MODES, APPEARANCE_TEMPLATES, AGENT_PROVIDERS } from '@blame/shared';
 import * as accounts from './services/accounts.js';
 import * as workers from './services/workers.js';
 import * as strategies from './services/strategies.js';
 import * as matches from './services/matches.js';
 import * as tournaments from './services/tournaments.js';
 import * as chain from './chain/gateway.js';
-import { generateAvatar } from './services/appearance.js';
+import { generateAppearance } from './services/appearance.js';
 import { buildPetPackage } from './services/codexPet.js';
+import * as economy from './services/economy.js';
 import { db } from './db.js';
 
 export const api = Router();
@@ -52,19 +53,15 @@ api.get('/config', (_req, res) => {
     strategyLibrary: Object.entries(STRATEGY_LIBRARY).map(([k, v]) => ({ id: k, nameKey: v.nameKey, code: v.code })),
     gameModes: GAME_MODES,
     appearanceTemplates: APPEARANCE_TEMPLATES,
+    agentProviders: AGENT_PROVIDERS,
     chain: chain.chainInfo(),
   });
 });
 
-// 自定义形象生成 (prompt 接 AI 图像 API + 兵底)
-api.post('/appearance/generate', requireUser, async (req: AuthedReq, res) => {
+// 自定义形象生成 (prompt -> 代码渲染 spec，前端用 8-bit 生成器绘制)
+api.post('/appearance/generate', requireUser, (req: AuthedReq, res) => {
   const { role, prompt } = req.body || {};
-  try {
-    const out = await generateAvatar((req.user!.id + ':' + Date.now()), role || 'engineer', prompt);
-    res.json(out);
-  } catch (e) {
-    res.status(500).json({ code: 'GENERATION_FAILED', message: (e as Error).message });
-  }
+  res.json(generateAppearance(req.user!.id + ':' + Date.now(), role || 'engineer', prompt));
 });
 
 api.get('/roles', (_req, res) => res.json(ALL_ROLES.map((r) => ROLES[r])));
@@ -110,9 +107,9 @@ api.post('/auth/wallet/link', requireUser, (req: AuthedReq, res) => {
 
 // ---------- Workers ----------
 api.post('/workers', requireUser, (req: AuthedReq, res) => {
-  const { name, role, appearance, personality } = req.body || {};
+  const { name, role, appearance, personality, agentTool } = req.body || {};
   if (!name || !role) return res.status(400).json({ code: 'MISSING_FIELDS' });
-  const w = workers.createWorker(req.user!.id, name, role, appearance || {}, personality || '');
+  const w = workers.createWorker(req.user!.id, name, role, appearance || {}, personality || '', agentTool || 'claude_code');
   res.json(w);
 });
 
@@ -325,3 +322,45 @@ api.get('/chain/batches/:batchId/manifest', (req, res) => {
   res.json(b);
 });
 api.get('/chain/claims', requireUser, (req: AuthedReq, res) => res.json(tournaments.claimsForUser(req.user!.id)));
+
+// 记录钱包真实交易 (客户端签名后回传)
+api.post('/chain/record', requireUser, (req: AuthedReq, res) => {
+  const { workerId, kind, txHash, address, chainId } = req.body || {};
+  if (!txHash) return res.status(400).json({ code: 'MISSING_TX' });
+  res.json(economy.recordAnchor(req.user!.id, workerId || null, kind || 'anchor', txHash, address || '', chainId || 1439));
+});
+api.get('/chain/anchors', requireUser, (req: AuthedReq, res) => res.json(economy.anchorsForUser(req.user!.id)));
+
+// ---------- 经济模型 ----------
+api.get('/economy/me', requireUser, (req: AuthedReq, res) => {
+  const uid = req.user!.id;
+  res.json({ balance: economy.balance(uid), history: economy.history(uid, 30), stakes: economy.getStakes(uid), seasonPass: economy.seasonPass(uid) });
+});
+api.get('/economy/tokenomics', (_req, res) => res.json(economy.tokenomics()));
+api.get('/economy/market', (_req, res) => res.json(economy.listings()));
+api.post('/economy/stake', requireUser, (req: AuthedReq, res) => {
+  const { workerId, amount } = req.body || {};
+  try { res.json({ stakes: economy.stake(req.user!.id, workerId, Number(amount)), balance: economy.balance(req.user!.id) }); }
+  catch (e) { res.status(400).json({ code: (e as Error).message }); }
+});
+api.post('/economy/unstake', requireUser, (req: AuthedReq, res) => {
+  try { res.json({ stakes: economy.unstake(req.user!.id, req.body?.stakeId), balance: economy.balance(req.user!.id) }); }
+  catch (e) { res.status(400).json({ code: (e as Error).message }); }
+});
+api.post('/economy/stake/claim', requireUser, (req: AuthedReq, res) => {
+  try { res.json({ stakes: economy.claimYield(req.user!.id, req.body?.stakeId), balance: economy.balance(req.user!.id) }); }
+  catch (e) { res.status(400).json({ code: (e as Error).message }); }
+});
+api.post('/economy/season-pass/buy', requireUser, (req: AuthedReq, res) => {
+  try { res.json({ seasonPass: economy.buySeasonPass(req.user!.id), balance: economy.balance(req.user!.id) }); }
+  catch (e) { res.status(400).json({ code: (e as Error).message }); }
+});
+api.post('/economy/market/list', requireUser, (req: AuthedReq, res) => {
+  const { item, name, price } = req.body || {};
+  try { res.json({ listings: economy.listItem(req.user!.id, item || 'coffee', name || 'Cosmetic', Number(price)) }); }
+  catch (e) { res.status(400).json({ code: (e as Error).message }); }
+});
+api.post('/economy/market/buy', requireUser, (req: AuthedReq, res) => {
+  try { res.json(economy.buyListing(req.user!.id, req.body?.listingId)); }
+  catch (e) { res.status(400).json({ code: (e as Error).message }); }
+});

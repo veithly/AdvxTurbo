@@ -2,14 +2,15 @@
 export type Dict = Record<string, string>;
 
 export const zh: Dict = {
-  'app.title': '谁来背锅？',
-  'app.subtitle': 'AI 动物公司大乱斗',
-  'app.tagline': '项目必须上线，但最后只能有一个人背锅。',
+  'app.title': '抢热点大作战',
+  'app.subtitle': 'AdventureX 黑客松现场',
+  'app.tagline': '官方网络很烂，只有偷开热点才能在工位 build 出项目。',
   'app.tagline.en': 'Ship together. Blame alone.',
 
   'nav.home': '首页', 'nav.office': '员工中心', 'nav.agentLab': 'Agent Lab', 'nav.arena': '竞技场',
   'nav.tournaments': '杯赛', 'nav.replays': '回放', 'nav.leaderboard': '排行榜', 'nav.chainVault': '链上金库',
   'nav.store': '商店', 'nav.profile': '我的', 'nav.docs': 'Agent 指南',
+  'nav.menu': '菜单', 'nav.economy': '经济',
 
   'common.login': '登录', 'common.register': '注册', 'common.guest': '游客试玩', 'common.logout': '退出',
   'common.loading': '加载中…', 'common.back': '返回', 'common.confirm': '确认', 'common.cancel': '取消',
@@ -45,9 +46,9 @@ export const zh: Dict = {
   'rank.intern': '实习生', 'rank.staff': '正式员工', 'rank.senior': '核心骨干', 'rank.scapegoat': '高级背锅侠',
   'rank.director': '总监', 'rank.vp': 'VP', 'rank.partner': '合伙人', 'rank.bossRelative': '老板的亲戚',
 
-  'zone.devDesk': '程序员工位', 'zone.designDesk': '设计桌', 'zone.qa': 'QA 区', 'zone.meeting': '会议室',
-  'zone.pantry': '茶水间', 'zone.restroom': '厕所', 'zone.hr': 'HR 台', 'zone.release': '发布台',
-  'zone.serverRoom': '服务器机房', 'zone.bossOffice': '老板办公室',
+  'zone.devDesk': '工位区A', 'zone.designDesk': '工位区B', 'zone.qa': '工位区C', 'zone.meeting': '主舞台',
+  'zone.pantry': '赞助商展台', 'zone.restroom': '厕所', 'zone.hr': '签到台', 'zone.release': '提交台',
+  'zone.serverRoom': '工位区D', 'zone.bossOffice': '工作人员站',
 
   'task.spec': '拆需求', 'task.login': '写登录', 'task.payment': '接支付', 'task.api': '写接口',
   'task.ui': '画页面', 'task.motion': '做动效', 'task.regression': '回归测试', 'task.smoke': '冒烟测试',
@@ -74,11 +75,12 @@ export const zh: Dict = {
   'diff.contribution': '平均贡献', 'diff.severityThreshold': 'Bug 处理阈值变化', 'diff.addedFakeWork': '新增：老板附近装作工作',
   'diff.addedRollback': '新增：紧急回滚策略',
 
-  'phase.standup': '晨会', 'phase.sprint': '开发冲刺', 'phase.incident': '线上事故', 'phase.freeze': '发布冻结', 'phase.audit': '老板审计',
+  'phase.standup': '开幕', 'phase.sprint': '开发', 'phase.incident': '突击查房', 'phase.freeze': '封板提交', 'phase.audit': '评审',
   'status.success': '项目成功上线', 'status.fail_incomplete': '未完成', 'status.fail_crash': '崩服',
   'status.fail_p0': 'P0 爆炸', 'status.fail_noship': '无人发布',
   'label.working': '工作中', 'label.slacking': '摸鱼', 'label.coffee': '喝咖啡', 'label.fixing': '救火中',
   'label.moving': '移动中', 'label.meeting': '开会', 'label.shipping': '发布中', 'label.idle': '发呆',
+  'label.building': '偷偷build', 'label.hotspot': '开热点!', 'label.lurking': '潜伏', 'label.busted': '被逮', 'label.resting': '休息',
 
   'office.myCompany': '我的公司', 'office.employees': '员工', 'office.workerKey': 'Worker Key',
   'office.currentStrategy': '当前策略', 'office.recentMatches': '最近比赛', 'office.projectSuccessRate': '项目成功率',
@@ -168,17 +170,33 @@ export const zh: Dict = {
 
   'arena.gameMode': '游戏模式 / 关卡', 'office.nft': 'Injective NFT', 'office.downloadPet': '下载 Codex 桌宠包',
   'replay.winner': '冠军', 'replay.mode': '模式', 'replay.winCondition': '胜负条件',
+
+  'econ.tokenomics': '通证学', 'econ.minted': '铸造总量', 'econ.burned': '销毁总量', 'econ.circulating': '流通量', 'econ.staked': '质押中', 'econ.holders': '持有人',
+  'econ.sinks': '销毁去向', 'econ.faucets': '产出来源', 'econ.staking': '质押', 'econ.stake': '质押', 'econ.unstake': '赎回', 'econ.claim': '领息',
+  'econ.stakeHint': '押注某员工，其排位赛进入前二时产出 CP 收益', 'econ.seasonPass': '赛季通行证', 'econ.buyPass': '购买高级通行证',
+  'econ.premium': '高级', 'econ.free': '免费', 'econ.passHint': '比赛累积 XP 解锁赛季奖励轨道', 'econ.market': '交易市场', 'econ.list': '挂单',
+  'econ.buy': '购买', 'econ.history': '账本', 'econ.reason': '原因', 'econ.INSUFFICIENT_CP': 'CP 不足', 'econ.ALREADY_PREMIUM': '已是高级通行证', 'econ.NO_YIELD': '暂无可领收益',
+  'chain.realTx': '真实链上交易', 'chain.walletTx': '用钱包发送真实交易', 'chain.connectFirst': '请先连接钱包并切到 Injective 1439', 'chain.anchored': '已上链', 'chain.viewTx': '查看交易', 'chain.onchainHistory': '钱包上链记录',
+
+  'leaderboard.provider': 'Agent', 'leaderboard.streak': '连胜', 'leaderboard.challenge': '挑战', 'leaderboard.climb': '冲榜赛季进行中', 'leaderboard.sub': '用你的 AI 员工爬到榜首 —— 胜场越多、连胜越高，rating 越高', 'leaderboard.peak': '历史最高分',
+  'obj.goal': '本局目标：在工位偷开热点 build 出项目冲奖（别被工作人员逮到）', 'obj.progress': '发布进度 100%', 'obj.stability': '稳定性 ≥ 40', 'obj.shipped': '有人成功上线', 'obj.noP0': '无 P0 事故爆炸', 'obj.champRule': '本模式冠军规则', 'obj.safest': '当前最稳', 'obj.risk': '最危险(易被逮)',
+  'commentary.title': '实时解说', 'commentary.start': '比赛开始！盯紧谁在干活、谁在摸鱼、谁最后背锅…',
+  'cm.bugSpawn': '冒出一个新 Bug', 'cm.explode': 'P0 事故爆发！机房冒烟了', 'cm.fixed': '修复了一个 Bug', 'cm.shipped': '把版本发上线了！', 'cm.caught': '工作人员逮到 {who} 在偷开热点！', 'cm.dq': '{who} 被工作人员当场逮住，取消参赛资格！', 'cm.forceAssign': '{who} 强行把锅推给了同事', 'cm.incident': '进入事故应急阶段！', 'cm.rollback': '执行了一次回滚', 'cm.matchEnd': '比赛结束，开始复盘定责',
+  'goal.progress': '发布进度 ≥ {n}%', 'goal.stability': '稳定性 ≥ {n}', 'goal.shipped': '有人成功上线', 'goal.noP0': '无 P0 事故爆炸', 'goal.fixes': '修复 ≥ {n} 个 Bug', 'goal.noCaught': '全程没被逮', 'goal.noDump': '无人强行推锅', 'goal.lowBugs': '场上 Bug ≤ {n}', 'goal.calmBlame': '最高 blame ≤ {n}', 'goal.done': '目标达成',
+  'bubble.working': '敲代码中…', 'bubble.fixing': '修修修！', 'bubble.slacking': '摸鱼~', 'bubble.shipping': '发布！', 'bubble.meeting': '开会同步', 'bubble.idle': '……', 'bubble.walking': '溜达~', 'bubble.reviewing': '审查中', 'bubble.helping': '搭把手', 'bubble.assign': '交给你了', 'bubble.fix': '修好了！', 'bubble.ship': '上线啦🚀', 'bubble.caught': '😱被逮了', 'bubble.dump': '这锅你背！', 'bubble.rollback': '快回滚！', 'bubble.explode': '💥炸了！', 'bubble.bossPatrol': '谁在开热点？', 'bubble.bossCaught': '逮到你了！', 'bubble.building': '偷偷build🛠', 'bubble.hotspot': '开热点中📶', 'bubble.lurking': '假装路过', 'bubble.busted': '😱被逮了', 'bubble.resting': '躺床垫😴', 'bubble.moving': '溜达~', 'bubble.dq': '取消参赛资格',
+  'create.agentTool': '你用的 Agent / 模型', 'create.agentToolHint': '选择你打造这名员工所用的 AI 工具，会展示在排行榜上',
 };
 
 export const en: Dict = {
-  'app.title': 'BLAME GAME',
-  'app.subtitle': 'AI Animal Office Brawl',
-  'app.tagline': 'Ship together. Blame alone.',
+  'app.title': 'CATCH THE HOTSPOT',
+  'app.subtitle': 'AdventureX Hackathon Floor',
+  'app.tagline': 'Venue wifi sucks — only a sneaky hotspot at a workstation lets you build.',
   'app.tagline.en': 'Ship together. Blame alone.',
 
   'nav.home': 'Home', 'nav.office': 'Office', 'nav.agentLab': 'Agent Lab', 'nav.arena': 'Arena',
   'nav.tournaments': 'Tournaments', 'nav.replays': 'Replays', 'nav.leaderboard': 'Leaderboard', 'nav.chainVault': 'Chain Vault',
   'nav.store': 'Store', 'nav.profile': 'Profile', 'nav.docs': 'Agent Guide',
+  'nav.menu': 'Menu', 'nav.economy': 'Economy',
 
   'common.login': 'Log in', 'common.register': 'Sign up', 'common.guest': 'Try as Guest', 'common.logout': 'Log out',
   'common.loading': 'Loading…', 'common.back': 'Back', 'common.confirm': 'Confirm', 'common.cancel': 'Cancel',
@@ -214,9 +232,9 @@ export const en: Dict = {
   'rank.intern': 'Intern', 'rank.staff': 'Staff', 'rank.senior': 'Senior', 'rank.scapegoat': 'Senior Scapegoat',
   'rank.director': 'Director', 'rank.vp': 'VP', 'rank.partner': 'Partner', 'rank.bossRelative': "Boss's Relative",
 
-  'zone.devDesk': 'Dev Desk', 'zone.designDesk': 'Design Desk', 'zone.qa': 'QA Area', 'zone.meeting': 'Meeting Room',
-  'zone.pantry': 'Pantry', 'zone.restroom': 'Restroom', 'zone.hr': 'HR Desk', 'zone.release': 'Release Deck',
-  'zone.serverRoom': 'Server Room', 'zone.bossOffice': "Boss Office",
+  'zone.devDesk': 'Workstation A', 'zone.designDesk': 'Workstation B', 'zone.qa': 'Workstation C', 'zone.meeting': 'Main Stage',
+  'zone.pantry': 'Sponsor Booth', 'zone.restroom': 'Restroom', 'zone.hr': 'Check-in', 'zone.release': 'Submit Deck',
+  'zone.serverRoom': 'Workstation D', 'zone.bossOffice': 'Staff Post',
 
   'task.spec': 'Write spec', 'task.login': 'Build login', 'task.payment': 'Integrate payment', 'task.api': 'Build API',
   'task.ui': 'Design UI', 'task.motion': 'Motion design', 'task.regression': 'Regression test', 'task.smoke': 'Smoke test',
@@ -243,11 +261,12 @@ export const en: Dict = {
   'diff.contribution': 'Avg contribution', 'diff.severityThreshold': 'Bug severity threshold changed', 'diff.addedFakeWork': 'Added: fake work near boss',
   'diff.addedRollback': 'Added: emergency rollback',
 
-  'phase.standup': 'Standup', 'phase.sprint': 'Sprint', 'phase.incident': 'Incident', 'phase.freeze': 'Release Freeze', 'phase.audit': 'Boss Audit',
+  'phase.standup': 'Kickoff', 'phase.sprint': 'Build', 'phase.incident': 'Sweep', 'phase.freeze': 'Freeze', 'phase.audit': 'Judging',
   'status.success': 'Shipped successfully', 'status.fail_incomplete': 'Incomplete', 'status.fail_crash': 'Server crashed',
   'status.fail_p0': 'P0 explosion', 'status.fail_noship': 'Nobody shipped',
   'label.working': 'working', 'label.slacking': 'slacking', 'label.coffee': 'coffee', 'label.fixing': 'firefighting',
   'label.moving': 'moving', 'label.meeting': 'meeting', 'label.shipping': 'shipping', 'label.idle': 'idle',
+  'label.building': 'building', 'label.hotspot': 'hotspot ON', 'label.lurking': 'lurking', 'label.busted': 'busted', 'label.resting': 'resting',
 
   'office.myCompany': 'My Company', 'office.employees': 'Employees', 'office.workerKey': 'Worker Key',
   'office.currentStrategy': 'Current strategy', 'office.recentMatches': 'Recent matches', 'office.projectSuccessRate': 'Project success rate',
@@ -337,6 +356,21 @@ export const en: Dict = {
 
   'arena.gameMode': 'Game mode / scenario', 'office.nft': 'Injective NFT', 'office.downloadPet': 'Download Codex pet',
   'replay.winner': 'Winner', 'replay.mode': 'Mode', 'replay.winCondition': 'Win condition',
+
+  'econ.tokenomics': 'Tokenomics', 'econ.minted': 'Total minted', 'econ.burned': 'Total burned', 'econ.circulating': 'Circulating', 'econ.staked': 'Staked', 'econ.holders': 'Holders',
+  'econ.sinks': 'Sinks', 'econ.faucets': 'Faucets', 'econ.staking': 'Staking', 'econ.stake': 'Stake', 'econ.unstake': 'Unstake', 'econ.claim': 'Claim',
+  'econ.stakeHint': 'Back a worker; earn CP yield when it finishes top-2 in ranked', 'econ.seasonPass': 'Season Pass', 'econ.buyPass': 'Buy Premium Pass',
+  'econ.premium': 'Premium', 'econ.free': 'Free', 'econ.passHint': 'Earn XP from matches to unlock the season reward track', 'econ.market': 'Marketplace', 'econ.list': 'List',
+  'econ.buy': 'Buy', 'econ.history': 'Ledger', 'econ.reason': 'Reason', 'econ.INSUFFICIENT_CP': 'Insufficient CP', 'econ.ALREADY_PREMIUM': 'Already premium', 'econ.NO_YIELD': 'No yield to claim',
+  'chain.realTx': 'Real on-chain tx', 'chain.walletTx': 'Send real tx with wallet', 'chain.connectFirst': 'Connect wallet & switch to Injective 1439 first', 'chain.anchored': 'Anchored on-chain', 'chain.viewTx': 'View tx', 'chain.onchainHistory': 'Wallet on-chain history',
+
+  'leaderboard.provider': 'Agent', 'leaderboard.streak': 'Streak', 'leaderboard.challenge': 'Challenge', 'leaderboard.climb': 'Ranked season live', 'leaderboard.sub': 'Climb to #1 with your AI worker — more wins & streaks mean higher rating', 'leaderboard.peak': 'Peak rating',
+  'obj.goal': 'Goal: sneak-build on hotspot at a workstation & submit — dodge the staff', 'obj.progress': 'Release 100%', 'obj.stability': 'Stability ≥ 40', 'obj.shipped': 'Someone shipped', 'obj.noP0': 'No P0 explosion', 'obj.champRule': 'Champion rule (this mode)', 'obj.safest': 'Safest now', 'obj.risk': 'Most at risk',
+  'commentary.title': 'Live Commentary', 'commentary.start': 'Match starts! Watch who works, who slacks, and who takes the blame…',
+  'cm.bugSpawn': 'a new bug appeared', 'cm.explode': 'P0 incident exploded! server room on fire', 'cm.fixed': 'fixed a bug', 'cm.shipped': 'shipped the release!', 'cm.caught': 'Staff busted {who} on a sneaky hotspot!', 'cm.dq': '{who} busted on hotspot — disqualified!', 'cm.forceAssign': '{who} force-dumped the blame on a coworker', 'cm.incident': 'Incident response phase begins!', 'cm.rollback': 'performed a rollback', 'cm.matchEnd': 'Match over — assigning responsibility',
+  'goal.progress': 'Release ≥ {n}%', 'goal.stability': 'Stability ≥ {n}', 'goal.shipped': 'Someone shipped', 'goal.noP0': 'No P0 explosion', 'goal.fixes': 'Fix ≥ {n} bugs', 'goal.noCaught': 'Nobody got busted', 'goal.noDump': 'No blame-dumping', 'goal.lowBugs': 'Bugs on field ≤ {n}', 'goal.calmBlame': 'Max blame ≤ {n}', 'goal.done': 'Goals met',
+  'bubble.working': 'coding…', 'bubble.fixing': 'fixing!', 'bubble.slacking': 'slacking~', 'bubble.shipping': 'ship it!', 'bubble.meeting': 'in a mtg', 'bubble.idle': '…', 'bubble.walking': 'strolling~', 'bubble.reviewing': 'reviewing', 'bubble.helping': 'helping', 'bubble.assign': 'you take it', 'bubble.fix': 'fixed it!', 'bubble.ship': 'shipped🚀', 'bubble.caught': '😱busted', 'bubble.dump': 'your fault!', 'bubble.rollback': 'rollback!', 'bubble.explode': '💥boom!', 'bubble.bossPatrol': "who's on hotspot?", 'bubble.bossCaught': 'gotcha!', 'bubble.building': 'building🛠', 'bubble.hotspot': 'hotspot ON📶', 'bubble.lurking': 'just passing', 'bubble.busted': '😱busted', 'bubble.resting': 'napping😴', 'bubble.moving': 'strolling~', 'bubble.dq': 'DQ’d',
+  'create.agentTool': 'Your Agent / model', 'create.agentToolHint': 'Pick the AI tool you built this worker with — shown on the leaderboard',
 };
 
 export const TRANSLATIONS = { zh, en };

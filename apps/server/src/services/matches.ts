@@ -6,6 +6,7 @@ import type { SimulateInput, MatchReplay, RoleId } from '@blame/shared';
 import { getWorker } from './workers.js';
 import { getVersion, saveReplay } from './strategies.js';
 import { matchLeaf, submitMatchBatch } from '../chain/gateway.js';
+import * as economy from './economy.js';
 
 // PRD 34.2 种子流程 (commit-reveal 混合)
 function makeSeed(matchId: string, participantWorkerIds: string[]) {
@@ -91,8 +92,8 @@ export function runRankedMatch(workerIds: string[], mode = 'ranked', tournamentI
       ratingBefore[p.workerId] ?? 1200, ratingAfter[p.workerId] ?? 1200
     );
     if (mode === 'ranked') {
-      db.prepare('UPDATE workers SET games=games+1, project_successes=project_successes+?, wins=wins+?, blame_sum=blame_sum+? WHERE id=?')
-        .run(p.projectSuccess ? 1 : 0, p.placement === 1 ? 1 : 0, p.finalBlame, p.workerId);
+      db.prepare('UPDATE workers SET games=games+1, project_successes=project_successes+?, wins=wins+?, blame_sum=blame_sum+?, win_streak=CASE WHEN ? THEN win_streak+1 ELSE 0 END WHERE id=?')
+        .run(p.projectSuccess ? 1 : 0, p.placement === 1 ? 1 : 0, p.finalBlame, p.placement === 1 ? 1 : 0, p.workerId);
     }
   }
 
@@ -104,6 +105,14 @@ export function runRankedMatch(workerIds: string[], mode = 'ranked', tournamentI
       db.prepare('UPDATE matches SET batch_id=? WHERE id=?').run(batch.batchId, matchId);
     } catch (e) {
       // 链不可用时不阻塞游戏
+    }
+    // 经济：按名次发放 Coffee Points + 质押派息 + 赛季 XP
+    try {
+      const ownerOf = (wid: string) => workers.find((w) => w.id === wid)?.user_id as string | undefined;
+      economy.rewardMatch(res.participants.map((p) => ({ workerId: p.workerId, placement: p.placement })), ownerOf);
+      for (const w of workers) { const uid = w.user_id; if (uid) economy.addSeasonXp(uid, 20); }
+    } catch (e) {
+      // 经济结算失败不阻塞比赛
     }
   }
 
@@ -133,7 +142,7 @@ function updateRatings(workers: any[], participants: any[]): Record<string, numb
     const newRating = Math.max(0, Math.round(wa.rating + (kFactor * delta) / Math.max(1, participants.length - 1)));
     const newSigma = Math.max(60, (wa.rating_sigma || 350) * 0.97);
     out[a.workerId] = newRating;
-    db.prepare('UPDATE workers SET rating=?, rating_mu=?, rating_sigma=? WHERE id=?').run(newRating, newRating, newSigma, a.workerId);
+    db.prepare('UPDATE workers SET rating=?, rating_mu=?, rating_sigma=?, best_rating=MAX(COALESCE(best_rating,1200),?) WHERE id=?').run(newRating, newRating, newSigma, newRating, a.workerId);
   }
   return out;
 }
@@ -143,7 +152,11 @@ export function getMatch(matchId: string): any {
 }
 
 export function matchParticipants(matchId: string): any[] {
-  return db.prepare('SELECT * FROM match_participants WHERE match_id = ? ORDER BY placement').all(matchId) as any[];
+  return db.prepare(
+    `SELECT mp.*, w.name AS worker_name, w.agent_tool AS agent_tool, w.appearance_json AS appearance_json, u.display_name AS owner
+     FROM match_participants mp LEFT JOIN workers w ON w.id = mp.worker_id LEFT JOIN users u ON u.id = w.user_id
+     WHERE mp.match_id = ? ORDER BY mp.placement`
+  ).all(matchId) as any[];
 }
 
 export function recentMatches(limit = 30, workerId?: string): any[] {

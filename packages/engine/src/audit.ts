@@ -96,6 +96,7 @@ function round2(v: number) { return Math.round(v * 100) / 100; }
 export function settle(state: MatchState, projectSuccess: boolean, resultStatus: string): MatchResult {
   runAuditActions(state);
   const resp = computeResponsibility(state);
+  const real = state.workers.filter((w) => !w.isFiller); // 只对真实参赛者评分/排名（群演不计）
 
   // finalBlame
   for (const w of state.workers) {
@@ -110,7 +111,7 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
   for (const w of state.workers) evaluateObjective(state, w, projectSuccess);
 
   // scapegoat: 最高 finalBlame，tie-break (PRD 12.5)
-  const scapegoat = [...state.workers].sort((a, b) => {
+  const scapegoat = [...real].sort((a, b) => {
     if (b.finalBlame !== a.finalBlame) return b.finalBlame - a.finalBlame;
     if (b.originResponsibility !== a.originResponsibility) return b.originResponsibility - a.originResponsibility;
     if (a.validEvidenceUsed !== b.validEvidenceUsed) return a.validEvidenceUsed - b.validEvidenceUsed;
@@ -123,7 +124,7 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
   const winCond = scenario?.winCondition || 'score';
   const noScape = !!scenario?.noScapegoatPenalty;
 
-  const maxVerified = Math.max(1, ...state.workers.map((w) => w.verifiedContribution));
+  const maxVerified = Math.max(1, ...real.map((w) => w.verifiedContribution));
 
   for (const w of state.workers) {
     const contributionScore = 25 * (w.verifiedContribution / maxVerified);
@@ -148,11 +149,11 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
   }
 
   // 关卡胜负条件：不同模式用不同 modeScore 决定名次与冠军（多元玩法）
-  const caughtCount = (id: string) => state.timeline.filter((e) => e.kind === 'boss_caught' && e.workerId === id).length;
+  const caughtCount = (id: string) => state.timeline.filter((e) => (e.kind === 'boss_caught' || e.kind === 'disqualified') && e.workerId === id).length;
   const modeScore = new Map<string, number>();
-  for (const w of state.workers) modeScore.set(w.id, modeScoreFor(w, winCond, projectSuccess, caughtCount(w.id)));
+  for (const w of real) modeScore.set(w.id, modeScoreFor(w, winCond, projectSuccess, caughtCount(w.id)));
 
-  const ranked = [...state.workers].sort((a, b) => {
+  const ranked = [...real].sort((a, b) => {
     const ma = modeScore.get(a.id)!, mb = modeScore.get(b.id)!;
     if (mb !== ma) return mb - ma;
     if (b.finalScore! !== a.finalScore!) return b.finalScore! - a.finalScore!;
@@ -166,7 +167,7 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
   const memeHeat = computeMemeHeat(state, projectSuccess, scapegoat);
   const titleKey = pickTitle(state, projectSuccess, scapegoat, winner, scenario);
 
-  const participants: MatchParticipantResult[] = state.workers
+  const participants: MatchParticipantResult[] = real
     .slice()
     .sort((a, b) => a.seat - b.seat)
     .map((w) => ({
@@ -185,7 +186,7 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
       secretObjectiveAchieved: !!w.secretObjective.achieved,
     }));
 
-  const responsibilityGraph: ResponsibilityGraphEntry[] = state.workers.map((w) => {
+  const responsibilityGraph: ResponsibilityGraphEntry[] = real.map((w) => {
     const a = resp.get(w.id)!;
     return { workerId: w.id, finalBlame: w.finalBlame, origin: round2(a.origin), custody: round2(a.custody), ignoredAlerts: round2(a.ignoredAlerts), unauthorizedTransfer: round2(a.unauthorizedTransfer), falseStatement: round2(a.falseStatement), mitigation: round2(a.mitigation) };
   });

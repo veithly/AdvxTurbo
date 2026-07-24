@@ -34,6 +34,10 @@ coverage/
 .cache/
 .playwright/
 test-results/
+e2e/artifacts/
+
+# Generated archives
+*.zip
 
 # Runtime data
 apps/server/data/blame.db

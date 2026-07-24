@@ -10,15 +10,12 @@ test('自定义形象 / NFT / 桌宠 / 游戏模式', async ({ page }) => {
   await page.getByRole('button', { name: /登录|Log in/ }).first().click();
   await page.waitForURL(/\/office/, { timeout: 20000 });
 
-  // 创建员工 — 自定义 AI 形象
+  // 创建员工 — 自定义 AI 形象（代码渲染 canvas）
   await page.goto('/create');
-  const preview = page.locator('.card img.avatar').first();
-  const before = await preview.getAttribute('src');
+  await expect(page.locator('canvas.avatar').first()).toBeVisible();
   await page.getByRole('button', { name: /生成形象|Generate/ }).click();
-  // 生成后预览应指向 /avatars/
-  await expect(preview).toHaveAttribute('src', /\/avatars\//, { timeout: 20000 });
-  const after = await preview.getAttribute('src');
-  expect(after).not.toEqual(before);
+  // 生成后出现形象来源标签（代码渲染 / AI 生成）
+  await expect(page.getByText(/程序化|AI 生成|Procedural|AI generated/).first()).toBeVisible({ timeout: 20000 });
 
   // 走完创建流程 -> NFT + 桌宠下载
   await page.getByRole('button', { name: /下一步|Next/ }).click();
@@ -33,6 +30,8 @@ test('自定义形象 / NFT / 桌宠 / 游戏模式', async ({ page }) => {
   await page.getByRole('button', { name: /开始匹配|Start matching/ }).click();
   await page.waitForURL(/\/match\//, { timeout: 20000 });
   await expect(page.getByText(/抢功之王|Credit War/).first()).toBeVisible({ timeout: 20000 });
+  // 默认 1×，测试时加速到 4×
+  await page.getByRole('button', { name: '4×' }).click().catch(() => {});
   // 等待结束并出现冠军 👑
   await expect(page.getByText('👑', { exact: false })).toBeVisible({ timeout: 30000 });
 

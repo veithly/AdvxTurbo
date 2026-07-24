@@ -62,7 +62,7 @@ export function Arena() {
               <div className="row">
                 {workers.map((w) => (
                   <div key={w.id} className={`role-pick ${sel === w.id ? 'sel' : ''}`} style={{ minWidth: 90 }} onClick={() => setSel(w.id)}>
-                    <Avatar role={w.role} size={40} src={avatarFromWorker(w)} />
+                    <Avatar role={w.role} size={40} spec={avatarFromWorker(w)} />
                     <div className="small">{w.name}</div>
                   </div>
                 ))}

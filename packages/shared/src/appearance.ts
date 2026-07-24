@@ -46,48 +46,39 @@ export function buildAvatarPrompt(role: RoleId, userPrompt?: string): string {
   return parts.join(', ');
 }
 
-// 兜底像素头像调色板（取自游戏 palette）
-const SKIN = ['#E6B97D', '#D8702B', '#A46F44', '#BE854B', '#ADB3B8', '#F7E6BF'];
-const CLOTH = ['#7B53A5', '#3F6C91', '#4B8955', '#C24135', '#30425B', '#E8BE49'];
-const BG = ['#253349', '#1E2432', '#30425B', '#2f5244', '#3a2f52'];
+// 形象色板（取自 8-bit 生成器 palette）
+const FURS = ['#F28C28', '#E99B37', '#8B929B', '#A66F45', '#C98B57', '#B18A68', '#5DBB63', '#8E5AC8', '#5AD2E6', '#F5C542'];
+const SHIRTS = ['#172231', '#1F4C73', '#1B2635', '#252B35', '#2367A6', '#8E5AC8', '#E84B3C', '#5DBB63', '#39414D', '#5AD2E6'];
+const ACCS = ['laptop', 'coffee', 'clipboard', 'wrench', 'magnifier', 'backpack', 'tie'];
+
+// prompt 关键词 -> 代码渲染 spec 覆盖（与内置模板对应）
+const KW: Array<[RegExp, AvatarSpecOverride]> = [
+  [/cyber|neon|赛博/i, { shirt: '#5AD2E6', fur: '#8E5AC8', accessory: 'laptop' }],
+  [/boss|老板|suit|crown|tie/i, { shirt: '#1E2228', accessory: 'tie' }],
+  [/fire|救火|extinguisher|chief/i, { shirt: '#E84B3C', accessory: 'wrench' }],
+  [/koi|lucky|锦鲤|gold|halo/i, { fur: '#F5C542', accessory: 'coffee' }],
+  [/zen|佛|monk|calm/i, { shirt: '#5DBB63', accessory: 'coffee' }],
+  [/crunch|996|eye-bag|黑眼圈|tired/i, { shirt: '#39414D', fur: '#8B929B' }],
+  [/startup|创业|hoodie/i, { shirt: '#F28C28', accessory: 'backpack' }],
+  [/detect|侦探|noir|magnif/i, { shirt: '#1F4C73', accessory: 'magnifier' }],
+];
+
+export interface AvatarSpecOverride {
+  fur?: string;
+  shirt?: string;
+  accessory?: string;
+}
 
 /**
- * 程序化 8-bit 头像（左右对称的像素肖像），完全离线可用的兜底形象。
- * 由 seed 决定，稳定可复现。返回 data-URI 形式的 SVG，可直接用于 <img src>。
+ * 由 prompt + seed 生成代码渲染形象 spec（关键词优先，否则哈希取色）。
+ * 前端用 8-bit 生成器的 drawCharacter 渲染，不产生任何图片文件。
  */
-export function proceduralAvatarSvg(seed: string): string {
-  const rng = new Rng('avatar:' + seed);
-  const grid = 8; // 8x8 对称
-  const cell = 8; // 每格 8px -> 64px
-  const skin = SKIN[rng.int(0, SKIN.length - 1)];
-  const cloth = CLOTH[rng.int(0, CLOTH.length - 1)];
-  const bg = BG[rng.int(0, BG.length - 1)];
-  const outline = '#16161D';
-  let rects = `<rect width="64" height="64" fill="${bg}"/>`;
-  const filled: boolean[][] = [];
-  for (let y = 0; y < grid; y++) {
-    filled[y] = [];
-    for (let x = 0; x < grid / 2; x++) {
-      // 顶部两行/边缘更可能留白，中部更可能填充，形成头像轮廓
-      const edge = x === 0 || y === 0 || y === grid - 1;
-      const p = edge ? 2500 : 6500;
-      filled[y][x] = rng.chance(p);
-    }
-  }
-  for (let y = 0; y < grid; y++) {
-    for (let x = 0; x < grid / 2; x++) {
-      if (!filled[y][x]) continue;
-      // 上半部分皮肤色，下半部分衣服色
-      const color = y < grid * 0.55 ? skin : cloth;
-      for (const gx of [x, grid - 1 - x]) {
-        rects += `<rect x="${gx * cell}" y="${y * cell}" width="${cell}" height="${cell}" fill="${color}" stroke="${outline}" stroke-width="1"/>`;
-      }
-    }
-  }
-  // 眼睛（对称）
-  const eyeY = Math.floor(grid * 0.35) * cell;
-  rects += `<rect x="${2 * cell}" y="${eyeY}" width="${cell}" height="${cell}" fill="${outline}"/>`;
-  rects += `<rect x="${5 * cell}" y="${eyeY}" width="${cell}" height="${cell}" fill="${outline}"/>`;
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64" shape-rendering="crispEdges">${rects}</svg>`;
-  return 'data:image/svg+xml;utf8,' + encodeURIComponent(svg);
+export function promptToCharSpec(prompt: string, seed: string): AvatarSpecOverride {
+  const spec: AvatarSpecOverride = {};
+  for (const [re, ov] of KW) if (re.test(prompt || '')) Object.assign(spec, ov);
+  const rng = new Rng('spec:' + seed + ':' + (prompt || ''));
+  if (!spec.fur) spec.fur = FURS[rng.int(0, FURS.length - 1)];
+  if (!spec.shirt) spec.shirt = SHIRTS[rng.int(0, SHIRTS.length - 1)];
+  if (!spec.accessory && prompt) spec.accessory = ACCS[rng.int(0, ACCS.length - 1)];
+  return spec;
 }

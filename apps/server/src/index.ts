@@ -8,7 +8,6 @@ import { api } from './routes.js';
 import { agentApi } from './agentApi.js';
 import { initChain, chainInfo } from './chain/gateway.js';
 import { loadReplay } from './services/strategies.js';
-import { AVATAR_DIR } from './services/appearance.js';
 import { DEFAULT_RULESET } from '@blame/shared';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -21,10 +20,8 @@ const app = express();
 app.use(cors());
 app.use(express.json({ limit: '2mb' }));
 
-// 静态：8bit 美术素材 + 生成的音频
-app.use('/assets', express.static(ASSETS_DIR));
+// 静态：生成的音频（美术全部由前端代码渲染，不再依赖 PNG）
 app.use('/audio', express.static(AUDIO_DIR));
-app.use('/avatars', express.static(AVATAR_DIR));
 
 app.use('/api', api);
 app.use('/v1', agentApi); // PRD 23 Base URL /v1

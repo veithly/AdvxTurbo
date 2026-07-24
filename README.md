@@ -24,6 +24,20 @@
 - **6 个多元关卡/模式**（不只背锅）：标准排位・抢功之王・零事故・摸鱼之神・实习生逆袭・PvE 周五上线夜；每个模式有不同的**胜负条件、成败阈值与事件偏重**，产生不同的冠军分布；新增 8 个办公室梗事件与 5 个秘密目标。
 - **Codex 桌宠包**：一键下载自包含 zip（可拖动桌宠 HTML + 角色精灵 + `AGENTS.md` + `config.json`），桌宠轮询员工战绩并可交给 Codex 按 `AGENTS.md` 驱动整个策略循环。
 
+## 🧩 代码渲染 / 真实链上 / 经济模型（第三次迭代）
+
+- **全部美术改为代码渲染**：将 `blame_game_8bit_generator`（Python 程序化像素生成器）忠实移植为 `apps/web/src/pixelart.ts`（TS/Canvas：调色板 + rect/box/polygon/ellipse/line 原语 + drawCharacter/Prop/Background）。运行时用 `<canvas>` 以 NEAREST 放大绘制**所有角色/道具/背景**（首页 7 个精灵均为 canvas、0 张 `<img>`）；服务端不再提供任何 PNG。自定义形象改为 **prompt→代码渲染 spec**（fur/shirt/accessory，关键词+哈希），由 `drawCharacter` 直接画出。
+- **顶部导航收进菜单**：11 个页面链接收进单个 ☰ 菜单下拉，顶栏只保留品牌 + 菜单 + 钱包/语言/登录。
+- **真实 Injective EVM 交易**：`apps/web/src/wallet.tsx` 通过 EIP-1193 `window.ethereum`（MetaMask/OKX）连接、`wallet_addEthereumChain`/`switch` 到 **Injective EVM Testnet (0x59f / 1439)**，用用户钱包对**真实交易**签名广播（合约调用或 self-anchor 承诺交易），返回可在 Blockscout 验证的 txHash；服务端 `/api/chain/record` 记录锚定，Chain Vault 展示钱包上链历史与浏览器链接。
+- **更多经济模型**：`economy` 服务实现 Coffee Points 软通证账本（faucet/sink）、**质押**（押注员工，前二产出收益 + 领息/赎回）、**赛季通行证**（CP 购买 + XP）、**装饰交易市场**（CP 计价 + 5% 手续费销毁）、**通证学统计**（铸造/销毁/流通/质押/持有人）；比赛结算按名次发 CP 并给质押者派息。新增 `/economy` 页面。
+
+## 🎯 清晰度 / 竞争感 / Agent 供应商徽标（第四次迭代）
+
+- **比赛看得懂**：回放页新增全宽大舞台（画面显著变大、精灵/标签放大）+ **目标栏**（实时 ✅/⬜ 四项胜利条件：发布进度/稳定性/有人上线/无 P0 + 本模式冠军规则）+ **实时解说**（把事件翻译成带角色名的人话：修复 Bug / P0 爆发 / 老板抓摸鱼…）+ 当前“最稳/最危险”指示。
+- **默认 1× 播放**（不再默认 4×），速度按钮更清楚。
+- **竞争感 / 刷榜动力**：排行榜新增 **前三领奖台**、胜场/**连胜 🔥**/历史最高分、**挑战按钮**；比赛结果表显示 **rating 升降（绿 +/红 -）** 与冠军👑。
+- **Agent 供应商徽标**：新增 `agent_tool`（创建员工时选），排行榜/回放展示**代码渲染的供应商徽标**（内联 SVG，无图片）：Claude Code / Codex / Qoder / OpenCode / Cursor / Copilot / Gemini / GPT / Claude / DeepSeek。
+
 ---
 
 ## 🗂 项目结构（Monorepo）

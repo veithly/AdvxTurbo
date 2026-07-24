@@ -1,11 +1,11 @@
 import React from 'react';
 import { useT } from '../i18n/index.js';
-import { nativeAsset } from '../api.js';
 import { useToast } from '../ui.js';
+import { PixelSprite } from '../PixelSprite.js';
 import { sfx } from '../audio.js';
 
 interface Item {
-  asset: string;
+  prop: string;
   nameKey: string;
   nameEn: string;
   price: number;
@@ -13,15 +13,16 @@ interface Item {
   transferable: boolean;
 }
 
+// 装饰道具全部由 8-bit 生成器代码渲染（PixelSprite），不使用任何 PNG
 const ITEMS: Item[] = [
-  { asset: 'vfx/05_blue_shield.png', nameKey: 'store.item.shield', nameEn: 'Blue Shield Trail', price: 120, onchain: true, transferable: true },
-  { asset: 'vfx/01_hotfix_green_sparks.png', nameKey: 'store.item.hotfix', nameEn: 'Hotfix Sparks FX', price: 90, onchain: false, transferable: false },
-  { asset: 'vfx/07_coffee_speed_boost.png', nameKey: 'store.item.speed', nameEn: 'Coffee Speed Aura', price: 150, onchain: false, transferable: false },
-  { asset: 'props/07_bubble_tea.png', nameKey: 'store.item.tea', nameEn: 'Bubble Tea Emote', price: 60, onchain: false, transferable: false },
-  { asset: 'props/05_coffee_mug.png', nameKey: 'store.item.mug', nameEn: 'Golden Coffee Mug', price: 80, onchain: true, transferable: true },
-  { asset: 'props/22_sticky_note_board.png', nameKey: 'store.item.board', nameEn: 'Sticky Note Banner', price: 40, onchain: false, transferable: false },
-  { asset: 'props/27_worker_keycard.png', nameKey: 'store.item.keycard', nameEn: 'Neon Keycard Skin', price: 110, onchain: true, transferable: true },
-  { asset: 'props/20_potted_plant.png', nameKey: 'store.item.plant', nameEn: 'Desk Plant Deco', price: 50, onchain: false, transferable: false },
+  { prop: 'coffee', nameKey: 'store.item.mug', nameEn: 'Golden Coffee Mug', price: 80, onchain: true, transferable: true },
+  { prop: 'ppt', nameKey: 'store.item.board', nameEn: 'Sticky Note Banner', price: 40, onchain: false, transferable: false },
+  { prop: 'ticket', nameKey: 'store.item.keycard', nameEn: 'Neon Keycard Skin', price: 110, onchain: true, transferable: true },
+  { prop: 'server', nameKey: 'store.item.shield', nameEn: 'Server Rack Deco', price: 120, onchain: true, transferable: true },
+  { prop: 'green_bug', nameKey: 'store.item.hotfix', nameEn: 'Lucky Green Bug Pet', price: 90, onchain: false, transferable: false },
+  { prop: 'purple_bug', nameKey: 'store.item.speed', nameEn: 'Purple Exploit Pet', price: 150, onchain: true, transferable: true },
+  { prop: 'hidden_bug', nameKey: 'store.item.tea', nameEn: 'Hidden Bug Plush', price: 60, onchain: false, transferable: false },
+  { prop: 'red_bug', nameKey: 'store.item.plant', nameEn: 'Critical Bug Trophy', price: 50, onchain: false, transferable: false },
 ];
 
 export function Store() {
@@ -39,12 +40,12 @@ export function Store() {
         <h2 className="page-title">🛍 {t('store.title')}</h2>
         <span className="tag yellow">☕ 480 {t('store.coffeePoints')}</span>
       </div>
-      <p className="page-sub muted">{t('store.desc')}</p>
+      <p className="page-sub muted">{t('store.desc')} · {t('store.cosmetic')} (code-rendered)</p>
 
       <div className="grid c4">
         {ITEMS.map((it) => (
           <div key={it.nameKey} className="card center">
-            <img src={nativeAsset(it.asset)} width={48} height={48} alt={it.nameEn} style={{ imageRendering: 'pixelated' }} />
+            <div style={{ display: 'flex', justifyContent: 'center' }}><PixelSprite kind="prop" name={it.prop} size={56} /></div>
             <div className="small" style={{ color: 'var(--cream)' }}>{t(it.nameKey, it.nameEn)}</div>
             <div className="row" style={{ justifyContent: 'center' }}>
               <span className={`tag ${it.onchain ? 'cyan' : 'gray'}`}>{it.onchain ? t('store.onchain') : t('store.offchain')}</span>
@@ -56,7 +57,7 @@ export function Store() {
         ))}
       </div>
 
-      <p className="small muted center" style={{ marginTop: 12 }}>{t('store.cosmetic')} · no win-rate for sale</p>
+      <p className="small muted center" style={{ marginTop: 12 }}>no win-rate for sale · 全部为代码渲染 8-bit 装饰</p>
     </div>
   );
 }

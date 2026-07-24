@@ -8,7 +8,7 @@ test('完整核心循环 UI 演示 (录制视频)', async ({ page }) => {
 
   // 1. Home
   await page.goto('/');
-  await expect(page.locator('h1')).toContainText(/谁来背锅|BLAME GAME/);
+  await expect(page.locator('h1')).toContainText(/抢热点|CATCH THE HOTSPOT/);
   await expect(page.locator('.incident-card').first()).toBeVisible();
   await page.waitForTimeout(600);
 
@@ -28,36 +28,50 @@ test('完整核心循环 UI 演示 (录制视频)', async ({ page }) => {
   await page.getByRole('button', { name: /开始排位|Start Ranked/ }).click();
   await page.waitForURL(/\/match\//, { timeout: 20000 });
   await expect(page.locator('canvas.office-stage')).toBeVisible();
+  // 默认 1×，演示时加速到 4×
+  await page.getByRole('button', { name: '4×' }).click().catch(() => {});
   // 观看比赛进行
   await page.waitForTimeout(9000);
   // 结果面板出现背锅者
   await expect(page.getByText(/背锅者|Scapegoat/)).toBeVisible({ timeout: 30000 });
   await page.waitForTimeout(1200);
 
+  // 菜单导航助手（链接已收进折叠菜单）
+  const goMenu = async (name: RegExp) => {
+    await page.getByRole('button', { name: /菜单|Menu/ }).click();
+    await page.getByRole('link', { name }).click();
+  };
+
   // 5. 排行榜
-  await page.getByRole('link', { name: /排行榜|Leaderboard/ }).click();
+  await goMenu(/排行榜|Leaderboard/);
   await page.waitForURL(/\/leaderboard/);
   await expect(page.locator('table.tbl')).toBeVisible();
   await page.waitForTimeout(600);
 
   // 6. 链上金库：faucet
-  await page.getByRole('link', { name: /链上金库|Chain Vault/ }).click();
+  await goMenu(/链上金库|Chain Vault/);
   await page.waitForURL(/\/chain/);
   await expect(page.getByText(/Injective/).first()).toBeVisible();
   const faucet = page.getByRole('button', { name: /领取测试币|Faucet/ });
   if (await faucet.count()) { await faucet.first().click(); await page.waitForTimeout(800); }
   await page.waitForTimeout(600);
 
-  // 7. Agent Lab: Quick Sim
-  await page.getByRole('link', { name: /Agent Lab/ }).click();
+  // 7. 经济：质押 / 通证学
+  await goMenu(/经济|Economy/);
+  await page.waitForURL(/\/economy/);
+  await expect(page.getByText(/通证学|Tokenomics/).first()).toBeVisible();
+  await page.waitForTimeout(600);
+
+  // 8. Agent Lab: Quick Sim
+  await goMenu(/Agent Lab/);
   await page.waitForURL(/\/lab/);
   await expect(page.locator('textarea')).toBeVisible();
   await page.getByRole('button', { name: /Quick Sim/ }).click();
   await expect(page.locator('table.tbl')).toBeVisible({ timeout: 20000 });
   await page.waitForTimeout(1000);
 
-  // 8. Docs
-  await page.getByRole('link', { name: /Agent 指南|Agent Guide/ }).click();
+  // 9. Docs
+  await goMenu(/Agent 指南|Agent Guide/);
   await page.waitForURL(/\/docs/);
   await expect(page.locator('table.tbl')).toBeVisible();
 

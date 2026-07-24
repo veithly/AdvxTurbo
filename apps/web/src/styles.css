@@ -65,6 +65,46 @@ code, pre { font-family: 'VT323', ui-monospace, monospace; }
 .nav .spacer { flex: 1; }
 .nav .navctl { display: flex; align-items: center; gap: 6px; }
 
+/* ===== 折叠菜单 ===== */
+.menu-wrap { position: relative; }
+.menu-backdrop { position: fixed; inset: 0; z-index: 60; }
+.menu-panel {
+  position: absolute; top: 42px; left: 0; z-index: 61; min-width: 210px;
+  background: var(--navy); border: 3px solid var(--outline); box-shadow: 5px 5px 0 var(--black); padding: 6px;
+}
+.menu-panel .menu-item {
+  display: flex; align-items: center; gap: 8px; padding: 8px 10px; color: var(--lightgray);
+  font-size: 15px; border: 2px solid transparent;
+}
+.menu-panel .menu-item:hover { background: var(--navy2); color: var(--white); }
+.menu-panel .menu-item.active { background: var(--yellow); color: var(--outline); border-color: var(--outline); }
+.menu-panel .menu-ico { width: 20px; text-align: center; }
+
+/* ===== 排行榜领奖台 ===== */
+.podium { display: flex; gap: 12px; justify-content: center; align-items: flex-end; margin-bottom: 18px; flex-wrap: wrap; }
+.podium-card { background: var(--navy); border: 3px solid var(--outline); box-shadow: 4px 4px 0 var(--black); padding: 12px 16px; text-align: center; min-width: 156px; display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.podium-card.p1 { border-color: var(--yellow); order: 2; transform: translateY(-12px); box-shadow: 0 0 0 2px var(--yellow), 5px 5px 0 var(--black); }
+.podium-card.p2 { order: 1; }
+.podium-card.p3 { order: 3; }
+.podium-medal { font-size: 30px; line-height: 1; }
+.podium-name { color: var(--cream); font-weight: 700; }
+.podium-rating { font-size: 24px; color: var(--yellow); font-weight: 800; }
+.tbl.lb tr.top td { background: rgba(245,197,66,0.06); }
+
+/* ===== 比赛目标栏 + 解说 ===== */
+.objective { border: 3px solid var(--outline); background: var(--navy); box-shadow: 4px 4px 0 var(--black); padding: 12px 14px; margin-bottom: 12px; }
+.objective .obj-title { color: var(--cream); font-size: 16px; font-weight: 700; margin-bottom: 6px; }
+.obj-conds { display: flex; flex-wrap: wrap; gap: 6px; }
+.obj-cond { display: inline-flex; align-items: center; gap: 5px; padding: 4px 9px; border: 2px solid var(--outline); font-size: 13px; }
+.obj-cond.met { background: var(--green); color: #08240f; }
+.obj-cond.unmet { background: var(--navy2); color: var(--gray); }
+.obj-leader { margin-left: auto; }
+.commentary-latest { font-size: 17px; color: var(--cream); min-height: 44px; padding: 8px 10px; background: var(--deep); border: 2px solid var(--outline); border-left: 4px solid var(--cyan); }
+.commentary-feed { max-height: 160px; overflow: auto; margin-top: 6px; }
+.commentary-feed .cm { padding: 3px 4px; font-size: 13px; border-bottom: 1px solid var(--gray2); }
+.commentary-feed .cm.hot { color: var(--red2); font-weight: 700; }
+.stage-wrap { width: 100%; }
+
 .content { flex: 1; padding: 20px; max-width: 1240px; margin: 0 auto; width: 100%; }
 .page-title { font-size: 26px; color: var(--cream); margin-bottom: 4px; }
 .page-sub { color: var(--gray); margin-bottom: 20px; font-size: 14px; }

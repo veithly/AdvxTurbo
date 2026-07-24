@@ -43,10 +43,15 @@ for (let i = 0; i < 8; i++) {
   accounts.linkWallet(user.id, addr, chain.chainInfo().chainId);
   if (i < 6) chain.faucet(addr);
 
-  const role = MVP_ROLES[i % MVP_ROLES.length] as RoleId;
+  // 6 种角色轮流，让猫/水豚/鹅/浣熊/柴犬/仓鼠六种动物都出现
+  const SEED_ROLES: RoleId[] = ['engineer', 'pm', 'qa', 'sre', 'designer', 'intern'];
+  const role = SEED_ROLES[i % SEED_ROLES.length];
   const cn = NAMES[i][0];
   const en = NAMES[i][1];
-  const w = workers.createWorker(user.id, `${cn} / ${en}`, role, { color: ['#D8702B', '#7B53A5', '#4B8955', '#499CBE'][i % 4] }, '喜欢在最后一秒发布');
+  // 不同玩家用不同的 Agent 工具/模型（排行榜展示 logo）
+  const TOOLS = ['claude_code', 'codex', 'qoder', 'opencode', 'cursor', 'gemini', 'gpt', 'copilot'];
+  const agentTool = TOOLS[i % TOOLS.length];
+  const w = workers.createWorker(user.id, `${cn} / ${en}`, role, { color: ['#D8702B', '#7B53A5', '#4B8955', '#499CBE'][i % 4] }, '喜欢在最后一秒发布', agentTool);
   workerIds.push(w.id);
 
   // 发布一个与初始不同的策略版本 (展示迭代)
@@ -70,8 +75,7 @@ for (let i = 0; i < 8; i++) {
 console.log('  Running ranked matches...');
 let sample = '';
 for (let m = 0; m < 24; m++) {
-  const shuffled = [...workerIds].sort((a, b) => (a + m).localeCompare(b + m));
-  const group = shuffled.slice(0, 4);
+  const group = [0, 1, 2, 3].map((k) => workerIds[(m * 3 + k) % workerIds.length]);
   const { matchId } = matches.runRankedMatch(group, 'ranked');
   if (m === 0) sample = matchId;
 }
