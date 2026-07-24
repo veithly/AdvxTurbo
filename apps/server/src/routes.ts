@@ -1,0 +1,327 @@
+import { Router, type Request, type Response, type NextFunction } from 'express';
+import { ROLES, ALL_ROLES, MVP_ROLES, DEFAULT_RULESET, STRATEGY_LIBRARY, RULESET_VERSION, GAME_MODES, APPEARANCE_TEMPLATES } from '@blame/shared';
+import * as accounts from './services/accounts.js';
+import * as workers from './services/workers.js';
+import * as strategies from './services/strategies.js';
+import * as matches from './services/matches.js';
+import * as tournaments from './services/tournaments.js';
+import * as chain from './chain/gateway.js';
+import { generateAvatar } from './services/appearance.js';
+import { buildPetPackage } from './services/codexPet.js';
+import { db } from './db.js';
+
+export const api = Router();
+
+// ---------- 鉴权中间件 ----------
+interface AuthedReq extends Request {
+  user?: accounts.User;
+  agentWorker?: any;
+  agentScopes?: string[];
+}
+
+function bearer(req: Request): string | undefined {
+  const h = req.header('authorization') || '';
+  return h.startsWith('Bearer ') ? h.slice(7) : undefined;
+}
+
+function requireUser(req: AuthedReq, res: Response, next: NextFunction) {
+  const u = accounts.userFromToken(bearer(req));
+  if (!u) return res.status(401).json({ code: 'UNAUTHENTICATED' });
+  req.user = u;
+  next();
+}
+
+function optionalUser(req: AuthedReq, _res: Response, next: NextFunction) {
+  req.user = accounts.userFromToken(bearer(req)) || undefined;
+  next();
+}
+
+function ownsWorker(req: AuthedReq, workerId: string): boolean {
+  const w = workers.getWorker(workerId);
+  return !!w && w.user_id === req.user?.id;
+}
+
+// ---------- 公共 ----------
+api.get('/health', (_req, res) => res.json({ ok: true, engine: 'engine-0.9.3', ruleset: RULESET_VERSION, time: new Date().toISOString() }));
+
+api.get('/config', (_req, res) => {
+  res.json({
+    roles: ALL_ROLES.map((r) => ({ ...ROLES[r] })),
+    mvpRoles: MVP_ROLES,
+    ruleset: DEFAULT_RULESET,
+    strategyLibrary: Object.entries(STRATEGY_LIBRARY).map(([k, v]) => ({ id: k, nameKey: v.nameKey, code: v.code })),
+    gameModes: GAME_MODES,
+    appearanceTemplates: APPEARANCE_TEMPLATES,
+    chain: chain.chainInfo(),
+  });
+});
+
+// 自定义形象生成 (prompt 接 AI 图像 API + 兵底)
+api.post('/appearance/generate', requireUser, async (req: AuthedReq, res) => {
+  const { role, prompt } = req.body || {};
+  try {
+    const out = await generateAvatar((req.user!.id + ':' + Date.now()), role || 'engineer', prompt);
+    res.json(out);
+  } catch (e) {
+    res.status(500).json({ code: 'GENERATION_FAILED', message: (e as Error).message });
+  }
+});
+
+api.get('/roles', (_req, res) => res.json(ALL_ROLES.map((r) => ROLES[r])));
+
+// ---------- 认证 ----------
+api.post('/auth/register', (req, res) => {
+  const { email, password, displayName, locale } = req.body || {};
+  if (!email || !password) return res.status(400).json({ code: 'MISSING_FIELDS' });
+  try {
+    res.json(accounts.register(email, password, displayName || email.split('@')[0], locale || 'zh'));
+  } catch (e) {
+    res.status(409).json({ code: (e as Error).message });
+  }
+});
+
+api.post('/auth/login', (req, res) => {
+  const { email, password } = req.body || {};
+  try {
+    res.json(accounts.login(email, password));
+  } catch (e) {
+    res.status(401).json({ code: (e as Error).message });
+  }
+});
+
+api.post('/auth/guest', (req, res) => res.json(accounts.guest(req.body?.locale || 'zh')));
+
+api.get('/auth/me', requireUser, (req: AuthedReq, res) => {
+  const wallet = accounts.walletFor(req.user!.id);
+  res.json({ user: req.user, wallet });
+});
+
+api.post('/auth/locale', requireUser, (req: AuthedReq, res) => {
+  accounts.setLocale(req.user!.id, req.body?.locale || 'zh');
+  res.json({ ok: true });
+});
+
+api.post('/auth/wallet/link', requireUser, (req: AuthedReq, res) => {
+  const { address, chainId } = req.body || {};
+  if (!address) return res.status(400).json({ code: 'MISSING_ADDRESS' });
+  const wid = accounts.linkWallet(req.user!.id, address, chainId || chain.chainInfo().chainId);
+  res.json({ ok: true, walletLinkId: wid, wallet: accounts.walletFor(req.user!.id) });
+});
+
+// ---------- Workers ----------
+api.post('/workers', requireUser, (req: AuthedReq, res) => {
+  const { name, role, appearance, personality } = req.body || {};
+  if (!name || !role) return res.status(400).json({ code: 'MISSING_FIELDS' });
+  const w = workers.createWorker(req.user!.id, name, role, appearance || {}, personality || '');
+  res.json(w);
+});
+
+api.get('/workers', requireUser, (req: AuthedReq, res) => res.json(workers.listWorkersByUser(req.user!.id)));
+
+api.get('/workers/:id', optionalUser, (req, res) => {
+  const w = workers.getWorker(req.params.id);
+  if (!w) return res.status(404).json({ code: 'NOT_FOUND' });
+  res.json(w);
+});
+
+api.patch('/workers/:id', requireUser, (req: AuthedReq, res) => {
+  if (!ownsWorker(req, req.params.id)) return res.status(403).json({ code: 'FORBIDDEN' });
+  workers.updateWorker(req.params.id, req.body || {});
+  res.json(workers.getWorker(req.params.id));
+});
+
+api.get('/workers/:id/context', optionalUser, (req, res) => {
+  const ctx = workers.workerContext(req.params.id);
+  if (!ctx) return res.status(404).json({ code: 'NOT_FOUND' });
+  res.json(ctx);
+});
+
+// Codex 桌宠包下载 (自包含 zip：桌宠 HTML + 精灵 + AGENTS.md + config)
+api.get('/workers/:id/codex-pet.zip', (req: AuthedReq, res) => {
+  const token = (req.query.token as string) || bearer(req);
+  const user = accounts.userFromToken(token);
+  const w = workers.getWorker(req.params.id);
+  if (!w) return res.status(404).json({ code: 'NOT_FOUND' });
+  if (!w.public_challenge_enabled && (!user || user.id !== w.user_id)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const apiBase = process.env.PUBLIC_API_BASE || `${req.protocol}://${req.get('host')}`;
+  const zip = buildPetPackage(w, apiBase);
+  res.setHeader('content-type', 'application/zip');
+  res.setHeader('content-disposition', `attachment; filename="codex-pet-${w.id}.zip"`);
+  res.send(zip);
+});
+
+// Worker Keys
+api.post('/workers/:id/keys', requireUser, (req: AuthedReq, res) => {
+  if (!ownsWorker(req, req.params.id)) return res.status(403).json({ code: 'FORBIDDEN' });
+  res.json(workers.createKey(req.params.id, req.user!.id, req.body?.name || 'default'));
+});
+api.get('/workers/:id/keys', requireUser, (req: AuthedReq, res) => {
+  if (!ownsWorker(req, req.params.id)) return res.status(403).json({ code: 'FORBIDDEN' });
+  res.json(workers.listKeys(req.params.id));
+});
+api.post('/keys/:keyId/revoke', requireUser, (req, res) => {
+  workers.revokeKey(req.params.keyId);
+  res.json({ ok: true });
+});
+api.post('/keys/:keyId/rotate', requireUser, (req, res) => res.json(workers.rotateKey(req.params.keyId)));
+
+// ---------- Strategies / Agent Lab ----------
+api.get('/workers/:id/versions', optionalUser, (req, res) => res.json(strategies.listVersions(req.params.id)));
+api.get('/versions/:vid', optionalUser, (req, res) => {
+  const v = strategies.getVersion(req.params.vid);
+  if (!v) return res.status(404).json({ code: 'NOT_FOUND' });
+  // 源码仅所有者可见 (PRD 22.5 私有默认)
+  const u = accounts.userFromToken(bearer(req));
+  const w = workers.getWorker(v.worker_id);
+  if (!u || w.user_id !== u.id) delete v.source_code;
+  res.json(v);
+});
+
+api.post('/workers/:id/simulate', requireUser, (req: AuthedReq, res) => {
+  if (!ownsWorker(req, req.params.id)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const { sourceCode, suite, baselineVersionId } = req.body || {};
+  const code = sourceCode || strategies.getVersion(workers.getWorker(req.params.id).current_ranked_version_id)?.source_code;
+  if (suite === 'regression') return res.json(strategies.regression(req.params.id, code, baselineVersionId));
+  res.json(strategies.quickSim(req.params.id, code));
+});
+
+api.post('/workers/:id/versions', requireUser, (req: AuthedReq, res) => {
+  if (!ownsWorker(req, req.params.id)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const { sourceCode, changeNotes, riskNotes, submittedBy, model, parentVersionId } = req.body || {};
+  if (!sourceCode) return res.status(400).json({ code: 'MISSING_SOURCE' });
+  const r = strategies.createVersion(req.params.id, sourceCode, { changeNotes, riskNotes, submittedBy, modelProvider: model?.provider, modelName: model?.name, parentVersionId });
+  res.json(r);
+});
+
+api.post('/versions/:vid/publish', requireUser, (req: AuthedReq, res) => {
+  const v = strategies.getVersion(req.params.vid);
+  if (!v || !ownsWorker(req, v.worker_id)) return res.status(403).json({ code: 'FORBIDDEN' });
+  try {
+    res.json(strategies.publishVersion(req.params.vid, req.body?.branch || 'ranked'));
+  } catch (e) {
+    res.status(400).json({ code: (e as Error).message });
+  }
+});
+
+// ---------- Matches / Arena ----------
+api.post('/matches/queue', requireUser, (req: AuthedReq, res) => {
+  const { workerId, players, mode } = req.body || {};
+  if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const w = workers.getWorker(workerId);
+  const opp = matches.findOpponents(w, (players || 4) - 1);
+  if (opp.length < 1) return res.status(409).json({ code: 'NO_OPPONENTS', message: '暂无可匹配对手，请先创建更多员工或运行 seed' });
+  const ids = [workerId, ...opp.map((o) => o.id)];
+  const { matchId } = matches.runRankedMatch(ids, mode || 'ranked', undefined, mode || 'ranked');
+  res.json({ matchId, mode: mode || 'ranked', opponents: opp.map((o) => ({ id: o.id, name: o.name, role: o.role, rating: Math.round(o.rating) })) });
+});
+
+api.post('/matches/challenge', requireUser, (req: AuthedReq, res) => {
+  const { workerId, opponentIds } = req.body || {};
+  if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const ids = [workerId, ...(opponentIds || [])].slice(0, 4);
+  const { matchId } = matches.runRankedMatch(ids, 'challenge');
+  res.json({ matchId });
+});
+
+api.get('/matches', optionalUser, (req, res) => res.json(matches.recentMatches(Number(req.query.limit) || 30, req.query.workerId as string)));
+api.get('/matches/hot', (_req, res) => res.json(matches.hotMatches(8)));
+api.get('/matches/:id', (req, res) => {
+  const m = matches.getMatch(req.params.id);
+  if (!m) return res.status(404).json({ code: 'NOT_FOUND' });
+  res.json({ ...m, participants: matches.matchParticipants(req.params.id) });
+});
+api.get('/matches/:id/replay', (req, res) => {
+  const replay = strategies.loadReplay(req.params.id);
+  if (!replay) return res.status(404).json({ code: 'NOT_FOUND' });
+  res.json(replay);
+});
+// PRD 23.6 Agent JSON 回放 (不含对手源码)
+api.get('/matches/:id/agent.json', (req, res) => {
+  const replay = strategies.loadReplay(req.params.id);
+  if (!replay) return res.status(404).json({ code: 'NOT_FOUND' });
+  const m = matches.getMatch(req.params.id);
+  res.json({
+    match: { id: m.id, mode: m.mode, engineVersion: m.engine_version, rulesetHash: m.ruleset_hash, mapHash: m.map_hash, eventDeckHash: m.event_deck_hash, seedCommitment: m.server_seed_commit, finalSeed: m.final_seed, startedAt: m.started_at, resultStatus: m.result_status },
+    participants: replay.result.participants,
+    timeline: replay.timeline,
+    responsibilityGraph: replay.result.responsibilityGraph,
+    metrics: replay.result.metrics,
+    explanations: replay.explanations,
+    verification: { replayHash: m.replay_hash, batchRoot: null, chainTxHash: null },
+  });
+});
+
+api.get('/leaderboards', (req, res) => res.json(matches.leaderboard((req.query.kind as string) || 'rating', 50)));
+
+// ---------- Tournaments ----------
+api.get('/tournaments', (_req, res) => res.json(tournaments.listTournaments()));
+api.get('/tournaments/:id', (req, res) => {
+  const t = tournaments.getTournament(req.params.id);
+  if (!t) return res.status(404).json({ code: 'NOT_FOUND' });
+  res.json(t);
+});
+api.post('/tournaments', requireUser, (req: AuthedReq, res) => res.json(tournaments.createTournament({ ...req.body, organizerUserId: req.user!.id })));
+api.post('/tournaments/:id/entries', requireUser, (req: AuthedReq, res) => {
+  const { workerId } = req.body || {};
+  if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
+  try {
+    res.json(tournaments.enterTournament(req.params.id, workerId, req.user!.id));
+  } catch (e) {
+    res.status(400).json({ code: (e as Error).message });
+  }
+});
+api.post('/tournaments/:id/run', requireUser, (req, res) => {
+  try {
+    res.json(tournaments.runTournament(req.params.id));
+  } catch (e) {
+    res.status(400).json({ code: (e as Error).message });
+  }
+});
+api.post('/tournaments/:id/claim', requireUser, (req: AuthedReq, res) => {
+  const { workerId } = req.body || {};
+  try {
+    res.json(tournaments.claimReward(req.params.id, workerId, req.user!.id));
+  } catch (e) {
+    res.status(400).json({ code: (e as Error).message });
+  }
+});
+
+// ---------- Chain ----------
+api.get('/chain/info', (_req, res) => res.json(chain.chainInfo()));
+api.get('/chain/events', (_req, res) => res.json(chain.recentChainEvents(50)));
+api.post('/chain/faucet', requireUser, (req: AuthedReq, res) => {
+  const wallet = accounts.walletFor(req.user!.id);
+  const addr = req.body?.address || wallet?.address_normalized;
+  if (!addr) return res.status(400).json({ code: 'NO_WALLET', message: '请先绑定钱包' });
+  res.json(chain.faucet(addr));
+});
+api.get('/chain/balance/:address', (req, res) => res.json({ address: req.params.address, inj: chain.balanceOf(req.params.address, 'INJ') }));
+api.post('/chain/passport/mint', requireUser, (req: AuthedReq, res) => {
+  const { workerId } = req.body || {};
+  if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const wallet = accounts.walletFor(req.user!.id);
+  const w = workers.getWorker(workerId);
+  const controller = wallet?.address_normalized || '0xcontroller' + workerId.slice(-6);
+  res.json(chain.mintPassport(workerId, controller, { name: w.name, role: w.role }));
+});
+api.post('/chain/strategy/register', requireUser, (req: AuthedReq, res) => {
+  const { workerId, versionId } = req.body || {};
+  if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const passport = chain.getPassport(workerId);
+  if (!passport) return res.status(400).json({ code: 'NO_PASSPORT', message: '请先铸造 Agent Passport' });
+  const v = strategies.getVersion(versionId);
+  const reg = chain.registerStrategy(passport.token_id, v.source_hash, v.parent_id || '0x0', `/api/versions/${versionId}`);
+  db.prepare('UPDATE strategy_versions SET chain_tx_hash=? WHERE id=?').run(reg.txHash, versionId);
+  res.json(reg);
+});
+api.get('/chain/worker-status/:workerId', (req, res) => {
+  const passport = chain.getPassport(req.params.workerId);
+  const regs = db.prepare('SELECT * FROM strategy_registrations WHERE passport_id = ?').all(passport?.token_id ?? -1);
+  res.json({ passport, registrations: regs, network: chain.chainInfo() });
+});
+api.get('/chain/batches/:batchId/manifest', (req, res) => {
+  const b = db.prepare('SELECT * FROM match_batches WHERE batch_id = ?').get(Number(req.params.batchId));
+  if (!b) return res.status(404).json({ code: 'NOT_FOUND' });
+  res.json(b);
+});
+api.get('/chain/claims', requireUser, (req: AuthedReq, res) => res.json(tournaments.claimsForUser(req.user!.id)));

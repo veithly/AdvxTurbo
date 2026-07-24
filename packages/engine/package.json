@@ -1,0 +1,17 @@
+{
+  "name": "@blame/engine",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --import tsx test/determinism.test.ts"
+  },
+  "dependencies": {
+    "@blame/shared": "*"
+  }
+}

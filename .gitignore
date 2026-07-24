@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+build/
+.next/
+out/
+.turbo/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Test / coverage
+coverage/
+.cache/
+.playwright/
+test-results/
+
+# Runtime data
+apps/server/data/blame.db
+apps/server/data/blame.db-shm
+apps/server/data/blame.db-wal
+apps/server/data/replays/
+
+# Misc
+*.tmp

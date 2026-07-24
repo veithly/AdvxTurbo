@@ -1,0 +1,118 @@
+{
+  "project": "谁来背锅？ / BLAME GAME",
+  "style": "8-bit pixel art, hard pixel edges, limited palette, no anti-aliasing",
+  "asset_count": {
+    "characters": 7,
+    "props": 27,
+    "backgrounds": 8,
+    "icons": 12,
+    "vfx": 9,
+    "total_images": 63
+  },
+  "export_sizes": {
+    "characters": {
+      "native": "64x64",
+      "enlarged": "512x512",
+      "background": "transparent"
+    },
+    "props": {
+      "native": "32x32",
+      "enlarged": "256x256",
+      "background": "transparent"
+    },
+    "backgrounds": {
+      "native": "160x90",
+      "enlarged": "1280x720",
+      "background": "opaque"
+    },
+    "icons": {
+      "native": "32x32",
+      "enlarged": "256x256",
+      "background": "transparent"
+    },
+    "vfx": {
+      "native": "48x48",
+      "enlarged": "384x384",
+      "background": "transparent"
+    }
+  },
+  "characters": {
+    "01_orange_cat_programmer.png": "橘猫程序员",
+    "02_capybara_product_manager.png": "水豚产品经理",
+    "03_goose_qa_tester.png": "大鹅测试",
+    "04_raccoon_devops.png": "浣熊运维",
+    "05_shiba_designer.png": "柴犬设计师",
+    "06_hamster_intern.png": "仓鼠实习生",
+    "07_bulldog_boss.png": "斗牛犬老板"
+  },
+  "props": {
+    "01_serious_red_bug.png": "严重红色 Bug",
+    "02_green_virus_bug.png": "绿色病毒 Bug",
+    "03_purple_exploit_bug.png": "紫色漏洞 Bug",
+    "04_hidden_bug_box.png": "隐藏 Bug 纸箱",
+    "05_coffee_mug.png": "咖啡杯",
+    "06_energy_drink.png": "能量饮料",
+    "07_bubble_tea.png": "奶茶",
+    "08_laptop.png": "笔记本电脑",
+    "09_ppt_tablet.png": "PPT 平板",
+    "10_task_ticket.png": "任务工单",
+    "11_document_stack.png": "文档堆",
+    "12_evidence_folder.png": "证据文件夹",
+    "13_magnifying_glass.png": "放大镜",
+    "14_wrench.png": "扳手",
+    "15_rollback_arrow.png": "回滚箭头",
+    "16_wifi_router.png": "Wi-Fi 路由器",
+    "17_alarm_siren.png": "报警灯",
+    "18_fire_extinguisher.png": "灭火器",
+    "19_server_rack.png": "服务器机柜",
+    "20_potted_plant.png": "盆栽",
+    "21_office_chair.png": "办公椅",
+    "22_sticky_note_board.png": "便利贴白板",
+    "23_trash_bin.png": "垃圾桶",
+    "24_coffee_machine.png": "咖啡机",
+    "25_printer.png": "打印机",
+    "26_cardboard_box.png": "纸箱",
+    "27_worker_keycard.png": "员工门禁卡"
+  },
+  "backgrounds": {
+    "01_open_office.png": "开放办公室",
+    "02_meeting_room.png": "会议室",
+    "03_server_room.png": "服务器机房",
+    "04_pantry.png": "茶水间",
+    "05_restroom.png": "洗手间",
+    "06_boss_office.png": "老板办公室",
+    "07_emergency_corridor.png": "紧急通道",
+    "08_rooftop_night.png": "夜间楼顶"
+  },
+  "icons": {
+    "01_work.png": "工作",
+    "02_fix.png": "修复",
+    "03_review.png": "审查",
+    "04_assign.png": "指派",
+    "05_report.png": "举报",
+    "06_help.png": "帮助",
+    "07_fake_work.png": "假装工作",
+    "08_coffee_break.png": "喝咖啡",
+    "09_meeting.png": "开会",
+    "10_hide_bug.png": "隐藏 Bug",
+    "11_take_credit.png": "抢功",
+    "12_rollback.png": "回滚"
+  },
+  "vfx": {
+    "01_hotfix_green_sparks.png": "Hotfix 绿光",
+    "02_critical_bug_explosion.png": "严重 Bug 爆炸",
+    "03_blame_transfer_arrow.png": "甩锅转移箭头",
+    "04_boss_alert_cone.png": "老板警戒锥",
+    "05_blue_shield.png": "蓝色护盾",
+    "06_freeze_burst.png": "冻结爆发",
+    "07_coffee_speed_boost.png": "咖啡加速",
+    "08_evidence_ping.png": "证据扫描",
+    "09_incident_smoke.png": "事故烟雾"
+  },
+  "integration_notes": [
+    "Unity: set Filter Mode to Point (no filter), Compression to None, and disable mipmaps for UI assets.",
+    "Godot: import textures with Filter disabled and use integer scaling.",
+    "Web/Canvas: use image-rendering: pixelated; image-rendering: crisp-edges.",
+    "Use the native folder for production and the enlarged folders for review, pitch decks, or web previews."
+  ]
+}
