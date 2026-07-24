@@ -31,6 +31,8 @@ contract AgentPassport is AccessRoles {
     mapping(uint256 => address) public pendingController;
 
     event PassportMinted(uint256 indexed tokenId, address indexed owner, bytes32 workerIdHash, bytes32 metadataHash);
+    /// @dev ERC-721 标准 Transfer 事件：钱包/浏览器依赖它索引 NFT（SBT 仅在 mint 时发出）
+    event Transfer(address indexed from, address indexed to, uint256 indexed tokenId);
     event PassportMetadataUpdated(uint256 indexed tokenId, bytes32 metadataHash, string uri);
     event PassportControllerChanged(uint256 indexed tokenId, address oldController, address newController);
     event PassportFrozen(uint256 indexed tokenId, bytes32 reasonHash);
@@ -77,6 +79,20 @@ contract AgentPassport is AccessRoles {
             frozen: false
         });
         emit PassportMinted(tokenId, owner, workerIdHash, metadataHash);
+        emit Transfer(address(0), owner, tokenId);
+    }
+
+    // ERC-165：声明 ERC-721 + Metadata 接口，便于钱包/浏览器识别
+    function supportsInterface(bytes4 interfaceId) external pure returns (bool) {
+        return interfaceId == 0x01ffc9a7 || interfaceId == 0x80ac58cd || interfaceId == 0x5b5e139f;
+    }
+
+    // ERC-721 只读兼容视图（SBT 永远无授权）
+    function getApproved(uint256) external pure returns (address) {
+        return address(0);
+    }
+    function isApprovedForAll(address, address) external pure returns (bool) {
+        return false;
     }
 
     function updateMetadata(uint256 tokenId, bytes32 newMetadataHash, string calldata newURI) external {

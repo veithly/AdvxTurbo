@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
 import { db, now } from '../db.js';
 import { id } from '../util.js';
+import { passportMetadata, passportCardSvg } from './nftArt.js';
 
 // PRD 26/29/34：Injective EVM 集成 (Testnet 1439 / Mainnet 1776)
 // 无 RPC/密钥时进入 mock 模式：把承诺、批次、奖金托管记录在本地账本，
@@ -62,6 +63,10 @@ CREATE TABLE IF NOT EXISTS strategy_registrations (
 );
 `);
 
+// live 模式回填列：真实链上 tx 与链上 tokenId（与本地展示 id 解耦）
+try { db.exec('ALTER TABLE chain_passports ADD COLUMN onchain_tx TEXT'); } catch {}
+try { db.exec('ALTER TABLE chain_passports ADD COLUMN onchain_token_id INTEGER'); } catch {}
+
 let provider: ethers.JsonRpcProvider | null = null;
 let wallet: ethers.Wallet | null = null;
 export let CHAIN_MODE: 'live' | 'mock' = 'mock';
@@ -122,11 +127,101 @@ export function mintPassport(workerId: string, controllerAddr: string, metadata:
   ).run(tokenId, workerId, wHash, metaHash, controllerAddr, now(), txHash);
   recordEvent('PassportMinted', { tokenId, workerId, workerHash: wHash, metadataHash: metaHash }, txHash);
   db.prepare('UPDATE workers SET passport_network=?, passport_token_id=?, passport_worker_hash=? WHERE id=?').run(ACTIVE.key, String(tokenId), wHash, workerId);
+  // live 模式：后台补一笔真实链上铸造（不阻塞创建流程）
+  anchorPassportOnChain(workerId).catch((e) => console.log('[chain] live mint failed:', e?.message || e));
   return { alreadyMinted: false, tokenId, txHash, workerHash: wHash, metadataHash: metaHash };
+}
+
+// ---- Live 真实合约调用 (Passport) ----
+const PASSPORT_ABI = [
+  'function mintPassport(address owner, bytes32 workerIdHash, bytes32 metadataHash, string metadataURI) returns (uint256)',
+  'function updateMetadata(uint256 tokenId, bytes32 newMetadataHash, string newURI)',
+  'function activePassportOf(bytes32) view returns (uint256)',
+  'event PassportMinted(uint256 indexed tokenId, address indexed owner, bytes32 workerIdHash, bytes32 metadataHash)',
+];
+
+/** 组装 NFT 卡片元数据（8-bit 形象 + 名字），tokenURI 为完全上链的 data:URI */
+function passportArtFor(workerId: string, wHash: string) {
+  const w = db.prepare('SELECT name, role, appearance_json FROM workers WHERE id=?').get(workerId) as any;
+  let spec: any;
+  try { spec = JSON.parse(w?.appearance_json || '{}')?.charSpec; } catch {}
+  return passportMetadata({ name: w?.name || 'Agent', role: w?.role || 'engineer', spec, workerHash: wHash });
+}
+
+/** 预览用：护照卡片 SVG（供 /api/chain/passports/:workerId/card.svg） */
+export function passportCardSvgFor(workerId: string): string | null {
+  const w = db.prepare('SELECT name, role, appearance_json FROM workers WHERE id=?').get(workerId) as any;
+  if (!w) return null;
+  let spec: any;
+  try { spec = JSON.parse(w.appearance_json || '{}')?.charSpec; } catch {}
+  return passportCardSvg(w.name || 'Agent', w.role || 'engineer', spec);
+}
+
+function passportContract(): ethers.Contract | null {
+  const addr = process.env.ADDR_PASSPORT || '';
+  if (CHAIN_MODE !== 'live' || !wallet || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return null;
+  return new ethers.Contract(addr, PASSPORT_ABI, wallet);
+}
+
+/** live 模式：把本地 passport 记录真实铸到链上，回填真 tx 与链上 tokenId；可用 ownerOverride 指定真实钱包 */
+export async function anchorPassportOnChain(workerId: string, ownerOverride?: string) {
+  const c = passportContract();
+  if (!c) return { ok: false, error: 'NOT_LIVE' };
+  const row = db.prepare('SELECT * FROM chain_passports WHERE worker_id=?').get(workerId) as any;
+  if (!row) return { ok: false, error: 'NO_LOCAL_PASSPORT' };
+  if (row.onchain_tx) return { ok: true, alreadyOnChain: true, txHash: row.onchain_tx, tokenId: row.onchain_token_id, explorer: `${ACTIVE.explorer}/tx/${row.onchain_tx}` };
+  const owner = ownerOverride || row.controller;
+  // tokenURI：内嵌「形象+名字」SVG 卡片的 data:URI，钱包/浏览器可直接显示图片
+  const art = passportArtFor(workerId, row.worker_hash);
+  const tx = await c.mintPassport(owner, row.worker_hash, art.metadataHash, art.tokenURI);
+  // 该 RPC 回执轮询极慢，tx.wait() 会卡死：手动轮询回执 + activePassportOf 后备确认
+  let chainTokenId: number | null = null;
+  for (let i = 0; i < 60; i++) {
+    const rc = await provider!.getTransactionReceipt(tx.hash).catch(() => null);
+    if (rc) {
+      if (rc.status !== 1) throw new Error('MINT_REVERTED');
+      for (const log of rc.logs || []) {
+        try {
+          const p = c.interface.parseLog(log);
+          if (p?.name === 'PassportMinted') chainTokenId = Number(p.args.tokenId);
+        } catch {}
+      }
+      break;
+    }
+    const active: bigint = await c.activePassportOf(row.worker_hash).catch(() => 0n);
+    if (active && active !== 0n) { chainTokenId = Number(active); break; }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (chainTokenId === null) throw new Error('MINT_TIMEOUT');
+  db.prepare('UPDATE chain_passports SET onchain_tx=?, onchain_token_id=?, controller=? WHERE worker_id=?').run(tx.hash, chainTokenId, owner, workerId);
+  recordEvent('PassportMintedOnChain', { workerId, owner, tokenId: chainTokenId }, tx.hash);
+  console.log('[chain] passport minted on-chain:', workerId, 'tokenId', chainTokenId, tx.hash);
+  return { ok: true, txHash: tx.hash, tokenId: chainTokenId, explorer: `${ACTIVE.explorer}/tx/${tx.hash}` };
 }
 
 export function getPassport(workerId: string) {
   return db.prepare('SELECT * FROM chain_passports WHERE worker_id = ?').get(workerId) as any;
+}
+
+/** live 模式：为已上链的护照重刷 tokenURI（补图/改名后更新卡片） */
+export async function refreshPassportArtOnChain(workerId: string) {
+  const c = passportContract();
+  if (!c) return { ok: false, error: 'NOT_LIVE' };
+  const row = db.prepare('SELECT * FROM chain_passports WHERE worker_id=?').get(workerId) as any;
+  if (!row?.onchain_token_id) return { ok: false, error: 'NOT_ON_CHAIN' };
+  const art = passportArtFor(workerId, row.worker_hash);
+  const tx = await c.updateMetadata(row.onchain_token_id, art.metadataHash, art.tokenURI);
+  for (let i = 0; i < 60; i++) {
+    const rc = await provider!.getTransactionReceipt(tx.hash).catch(() => null);
+    if (rc) {
+      if (rc.status !== 1) throw new Error('UPDATE_REVERTED');
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  db.prepare('UPDATE chain_passports SET metadata_hash=? WHERE worker_id=?').run(art.metadataHash, workerId);
+  console.log('[chain] passport art refreshed:', workerId, 'tokenId', row.onchain_token_id, tx.hash);
+  return { ok: true, txHash: tx.hash, tokenId: row.onchain_token_id, explorer: `${ACTIVE.explorer}/tx/${tx.hash}` };
 }
 
 // ---- Strategy Registry (PRD 31) ----

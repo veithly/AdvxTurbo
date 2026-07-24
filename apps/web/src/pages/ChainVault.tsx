@@ -67,7 +67,13 @@ export function ChainVault() {
   async function linkWallet() {
     sfx('click', 0.3);
     try {
-      await api.post('/api/auth/wallet/link', { address: randAddr() });
+      // 优先绑真实钱包地址（live 铸造时 NFT 才会落到用户钱包），未连钱包时退回演示地址
+      let addr = w2.address;
+      if (!addr && hasWallet()) {
+        await w2.connect().catch(() => {});
+        addr = useWallet.getState().address;
+      }
+      await api.post('/api/auth/wallet/link', { address: addr || randAddr() });
       await refreshWallet();
       toast.show(t('chain.linkWallet'));
     } catch (e) { err(e); }
@@ -76,7 +82,7 @@ export function ChainVault() {
     sfx('click', 0.3);
     try {
       const r = await api.post('/api/chain/faucet', {});
-      const amt = r.balance?.amount ?? r.amount;
+      const amt = typeof r.balance === 'string' ? r.balance : r.balance?.amount ?? r.amount;
       if (amt != null) setBalance(String(amt));
       toast.show(t('chain.faucetOk') + (r.txHash ? ' ' + String(r.txHash).slice(0, 10) + '…' : ''));
     } catch (e) { err(e); }

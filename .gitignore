@@ -10,8 +10,14 @@ out/
 
 # Environment
 .env
+.env.relayer
 .env.local
 .env.*.local
+
+# Hardhat build outputs
+contracts/artifacts/
+contracts/cache/
+contracts/typechain-types/
 
 # Logs
 *.log

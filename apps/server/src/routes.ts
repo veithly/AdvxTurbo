@@ -290,6 +290,12 @@ api.post('/tournaments/:id/claim', requireUser, (req: AuthedReq, res) => {
 
 // ---------- Chain ----------
 api.get('/chain/info', (_req, res) => res.json(chain.chainInfo()));
+// NFT 护照卡片预览（与链上 tokenURI 内嵌图同源）
+api.get('/chain/passports/:workerId/card.svg', (req, res) => {
+  const svg = chain.passportCardSvgFor(req.params.workerId);
+  if (!svg) return res.status(404).json({ code: 'NOT_FOUND' });
+  res.type('image/svg+xml').send(svg);
+});
 api.get('/chain/events', (_req, res) => res.json(chain.recentChainEvents(50)));
 api.post('/chain/faucet', requireUser, (req: AuthedReq, res) => {
   const wallet = accounts.walletFor(req.user!.id);
@@ -298,6 +304,17 @@ api.post('/chain/faucet', requireUser, (req: AuthedReq, res) => {
   res.json(chain.faucet(addr));
 });
 api.get('/chain/balance/:address', (req, res) => res.json({ address: req.params.address, inj: chain.balanceOf(req.params.address, 'INJ') }));
+// live 模式：把已有 passport 真实铸到链上（可指定 owner 为用户真实钱包）
+api.post('/chain/passport/anchor', requireUser, async (req: AuthedReq, res) => {
+  const { workerId, owner } = req.body || {};
+  const w = workers.getWorker(workerId);
+  if (!w || w.user_id !== req.user!.id) return res.status(404).json({ code: 'WORKER_NOT_FOUND' });
+  try {
+    res.json(await chain.anchorPassportOnChain(workerId, owner));
+  } catch (e: any) {
+    res.status(500).json({ code: 'CHAIN_TX_FAILED', message: e?.message || String(e) });
+  }
+});
 api.post('/chain/passport/mint', requireUser, (req: AuthedReq, res) => {
   const { workerId } = req.body || {};
   if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
