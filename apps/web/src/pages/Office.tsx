@@ -88,7 +88,7 @@ export function Office() {
         <button className="btn purple sm" onClick={() => nav('/create')}>＋ {t('home.createWorker')}</button>
       </div>
 
-      <div className="row" style={{ marginBottom: 16 }}>
+      <div className="row worker-scroll" style={{ marginBottom: 16 }}>
         {workers.map((w) => (
           <div key={w.id} className={`role-pick ${sel?.id === w.id ? 'sel' : ''}`} style={{ minWidth: 110, position: 'relative', outline: team.includes(w.id) ? '2px solid var(--green)' : 'none' }} onClick={() => selectWorker(w)}>
             <button title={t('office.toggleTeam')} onClick={(e) => { e.stopPropagation(); toggleTeam(w.id); sfx('click', 0.3); }} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer', background: team.includes(w.id) ? 'var(--green)' : 'var(--gray2)', color: '#fff', fontWeight: 700 }}>{team.includes(w.id) ? '✓' : '＋'}</button>

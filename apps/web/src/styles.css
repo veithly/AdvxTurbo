@@ -223,3 +223,81 @@ table.tbl tr:nth-child(even) td { background: rgba(0,0,0,0.15); }
 @keyframes flash { 0%{background:var(--red2)} 100%{background:transparent} }
 .spin { display:inline-block; animation: spin 1s steps(8) infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ===== Mobile Responsive ===== */
+
+/* 表格在小屏横向滚动 */
+.tbl-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+
+@media (max-width: 640px) {
+  /* 整体间距缩小 */
+  .content { padding: 12px 10px; }
+  .page-title { font-size: 20px; }
+  .page-sub { font-size: 13px; margin-bottom: 12px; }
+
+  /* 导航栏紧凑 */
+  .nav { padding: 6px 8px; gap: 4px; }
+  .nav .brand { font-size: 18px; margin-right: 6px; }
+  .nav .brand small { font-size: 10px; }
+  .nav .navctl { gap: 4px; }
+  .nav .navctl .btn.sm { font-size: 11px; padding: 4px 6px; }
+
+  /* Hero 区域缩放 */
+  .hero { padding: 20px 12px; margin-bottom: 16px; }
+  .hero h1 { font-size: 28px; letter-spacing: 1px; text-shadow: 2px 2px 0 var(--red); }
+  .hero .en { font-size: 14px; }
+  .hero .tagline { font-size: 14px; margin: 10px 0 16px; }
+
+  /* HUD 4列 → 2列 */
+  .hud { grid-template-columns: repeat(2, 1fr); gap: 6px; }
+  .hud .who { padding: 4px; gap: 4px; font-size: 12px; }
+
+  /* 卡片间距缩小 */
+  .card { padding: 12px; margin-bottom: 12px; }
+  .card h3 { font-size: 16px; }
+
+  /* 按钮适配 */
+  .btn { padding: 7px 12px; font-size: 14px; }
+  .btn.sm { font-size: 12px; padding: 4px 8px; }
+
+  /* 领奖台适配 */
+  .podium { gap: 8px; }
+  .podium-card { min-width: 100px; padding: 8px 10px; }
+  .podium-rating { font-size: 20px; }
+
+  /* 表格适配 */
+  table.tbl th, table.tbl td { padding: 4px 5px; font-size: 12px; }
+
+  /* Avatar 在移动端稍小 */
+  .avatar { width: 48px; height: 48px; }
+  .avatar.lg { width: 72px; height: 72px; }
+
+  /* AgentLab 双列布局变单列 */
+  .lab-layout { grid-template-columns: 1fr !important; }
+
+  /* Office 员工选择横向滚动 */
+  .worker-scroll { overflow-x: auto; flex-wrap: nowrap !important; -webkit-overflow-scrolling: touch; padding-bottom: 6px; }
+  .worker-scroll .role-pick { min-width: 90px; flex-shrink: 0; }
+
+  /* Stepper 缩小字体 */
+  .stepper .step { font-size: 11px; padding: 4px; }
+
+  /* Code pre 缩小 */
+  pre.code { max-height: 200px; font-size: 12px; padding: 8px; }
+
+  /* Toast 贴边 */
+  .toast { left: 10px; right: 10px; transform: none; text-align: center; }
+
+  /* 行布局在极窄屏中心化 */
+  .row { gap: 6px; }
+}
+
+@media (max-width: 480px) {
+  .hero h1 { font-size: 22px; }
+  .hero .en { font-size: 12px; }
+  .page-title { font-size: 18px; }
+  .hud { grid-template-columns: 1fr 1fr; }
+  .podium-card { min-width: 80px; padding: 6px; }
+  .podium-card.p1 { transform: translateY(-6px); }
+  .nav .brand { font-size: 16px; }
+}

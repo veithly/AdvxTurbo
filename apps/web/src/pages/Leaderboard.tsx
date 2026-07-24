@@ -65,7 +65,7 @@ export function Leaderboard() {
             </div>
           )}
 
-          <div className="card">
+          <div className="card tbl-wrap">
             <table className="tbl lb">
               <thead>
                 <tr>
