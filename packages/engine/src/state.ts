@@ -67,6 +67,10 @@ export interface EngineWorker extends WorkerState {
   qoderUntilTick: number;  // Qoder 冲刺结束 tick
   isFiller: boolean;       // AI 群演选手（不计入真实排名）
   disqualified: boolean;   // 被拓→取消参赛资格
+  dqAtTick?: number;       // 取消资格发生的 tick（护送离场后从帧中移除）
+  // —— 灵感 & 服务区 ——
+  canteenWait: number;     // 在食堂已等待的 tick（满 5s 给灵感+精力）
+  hotelCooldownUntil: number; // 酒店补给冷却结束 tick（排到后 30s 内不能再排）
 }
 
 // 工作人员（AI，逐个排查，重合才捕捉）
@@ -101,6 +105,8 @@ export interface MatchState {
   workers: EngineWorker[];
   boss: BossState;
   staff: StaffAgent[];
+  hotelServingId?: string; // 酒店排队：当前正在补给的选手（一次只服务一人）
+  hotelServeUntil: number; // 当前补给结束 tick
   bossPatrolIndex: number;
   bossRng: Rng;
   worldRng: Rng;
@@ -165,6 +171,7 @@ function makeWorker(input: SimulateInput, seat: number, id: string, name: string
     originResponsibility: 0, custodyResponsibility: 0, heroicFix: false, confessed: false,
     hotspotOn: false, signal: 0, violations: 0, bustedUntilTick: -1, buildTicks: 0, qoderUntilTick: -1,
     isFiller, disqualified: false,
+    inspiration: 0, canteenWait: 0, hotelCooldownUntil: -1,
   };
 }
 
@@ -209,6 +216,7 @@ export function initState(input: SimulateInput): MatchState {
     workers,
     boss,
     staff,
+    hotelServeUntil: -1,
     bossPatrolIndex: 0,
     bossRng: new Rng(subStreamSeed(input.finalSeed, 'boss')),
     worldRng: new Rng(subStreamSeed(input.finalSeed, 'world')),

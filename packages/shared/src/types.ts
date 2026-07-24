@@ -120,6 +120,7 @@ export interface WorkerState {
   zone: string;
   energy: number;
   stress: number;
+  inspiration: number;
   reputation: number;
   visibleBlame: number;
   finalBlame: number;
@@ -367,6 +368,7 @@ export interface WorkerFrame {
   label: string;
   energy: number;
   stress: number;
+  inspiration: number;
   blame: number;
   contribution: number;
   suspicion: number;

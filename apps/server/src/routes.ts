@@ -38,6 +38,7 @@ function optionalUser(req: AuthedReq, _res: Response, next: NextFunction) {
 }
 
 function ownsWorker(req: AuthedReq, workerId: string): boolean {
+  if (!workerId || typeof workerId !== 'string') return false;
   const w = workers.getWorker(workerId);
   return !!w && w.user_id === req.user?.id;
 }
@@ -202,14 +203,18 @@ api.post('/versions/:vid/publish', requireUser, (req: AuthedReq, res) => {
 
 // ---------- Matches / Arena ----------
 api.post('/matches/queue', requireUser, (req: AuthedReq, res) => {
-  const { workerId, players, mode } = req.body || {};
-  if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
-  const w = workers.getWorker(workerId);
-  const opp = matches.findOpponents(w, (players || 4) - 1);
-  if (opp.length < 1) return res.status(409).json({ code: 'NO_OPPONENTS', message: '暂无可匹配对手，请先创建更多员工或运行 seed' });
-  const ids = [workerId, ...opp.map((o) => o.id)];
+  const { workerId, workerIds, players, mode } = req.body || {};
+  // 支持多队友：workerIds 为玩家自己的一组员工（均需拥有），均为真实参赛者
+  const team: string[] = (Array.isArray(workerIds) && workerIds.length ? workerIds : [workerId]).filter(Boolean).slice(0, 8);
+  if (team.length === 0 || !team.every((wid) => ownsWorker(req, wid))) return res.status(403).json({ code: 'FORBIDDEN' });
+  const total = Math.max(players || 4, team.length);
+  const need = total - team.length;
+  const w = workers.getWorker(team[0]);
+  const opp = need > 0 ? matches.findOpponents(w, need) : [];
+  if (team.length < 2 && opp.length < 1) return res.status(409).json({ code: 'NO_OPPONENTS', message: '暂无可匹配对手，请先创建更多员工或运行 seed' });
+  const ids = [...team, ...opp.map((o) => o.id)];
   const { matchId } = matches.runRankedMatch(ids, mode || 'ranked', undefined, mode || 'ranked');
-  res.json({ matchId, mode: mode || 'ranked', opponents: opp.map((o) => ({ id: o.id, name: o.name, role: o.role, rating: Math.round(o.rating) })) });
+  res.json({ matchId, mode: mode || 'ranked', team, opponents: opp.map((o) => ({ id: o.id, name: o.name, role: o.role, rating: Math.round(o.rating) })) });
 });
 
 api.post('/matches/challenge', requireUser, (req: AuthedReq, res) => {

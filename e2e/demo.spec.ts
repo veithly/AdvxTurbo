@@ -32,8 +32,8 @@ test('完整核心循环 UI 演示 (录制视频)', async ({ page }) => {
   await page.getByRole('button', { name: '4×' }).click().catch(() => {});
   // 观看比赛进行
   await page.waitForTimeout(9000);
-  // 结果面板出现背锅者
-  await expect(page.getByText(/背锅者|Scapegoat/)).toBeVisible({ timeout: 30000 });
+  // 结果面板出现本局冠军
+  await expect(page.getByText(/冠军|Champion/)).toBeVisible({ timeout: 30000 });
   await page.waitForTimeout(1200);
 
   // 菜单导航助手（链接已收进折叠菜单）

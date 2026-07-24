@@ -1,8 +1,23 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ZONES, MAP_WIDTH, MAP_HEIGHT } from '@blame/shared';
 import type { ReplayFrame, Severity, BugStatus } from '@blame/shared';
 import { useT } from './i18n/index.js';
 import { characterCanvas, propCanvas, type CharSpec } from './pixelart.js';
+
+// 每个区域渲染真实的详细房间背景图（图中所示的 8-bit 房间）
+const BG_SRC: Record<string, string> = {
+  devDesk: '/bg/open_office.png', designDesk: '/bg/open_office.png', qa: '/bg/open_office.png', serverRoom: '/bg/server_room.png',
+  meeting: '/bg/blue_rest.png', pantry: '/bg/pantry.png', restroom: '/bg/restroom.png', hr: '/bg/meeting_room.png',
+  release: '/bg/submit.png', bossOffice: '/bg/staff_room.png',
+};
+const bgCache: Record<string, HTMLImageElement> = {};
+function bgImage(zoneId: string): HTMLImageElement | null {
+  const src = BG_SRC[zoneId];
+  if (!src) return null;
+  let img = bgCache[src];
+  if (!img) { img = new Image(); img.src = src; bgCache[src] = img; }
+  return img.complete && img.naturalWidth ? img : null;
+}
 
 const ZONE_COLORS: Record<string, string> = {
   devDesk: '#2b3b52', designDesk: '#3a2f52', qa: '#2f5244', meeting: '#4a3a24',
@@ -64,6 +79,14 @@ export function OfficeCanvas({
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const t = useT();
+  const [, setBgTick] = useState(0);
+  useEffect(() => {
+    Object.values(BG_SRC).forEach((src) => {
+      let im = bgCache[src];
+      if (!im) { im = new Image(); im.src = src; bgCache[src] = im; }
+      if (!im.complete) im.onload = () => setBgTick((x) => x + 1);
+    });
+  }, []);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -119,32 +142,24 @@ export function OfficeCanvas({
     ctx.font = '13px "DotGothic16", monospace';
     for (const z of ZONES) {
       const [zx, zy, zw, zh] = z.rect;
-      ctx.fillStyle = ZONE_COLORS[z.id] || '#222';
-      ctx.fillRect(zx * ts, zy * ts, zw * ts, zh * ts);
-      // 顶部高光增加立体感
-      ctx.fillStyle = 'rgba(255,255,255,0.05)';
-      ctx.fillRect(zx * ts + 2, zy * ts + 2, zw * ts - 4, 4);
+      const img = bgImage(z.id);
+      if (img) { ctx.drawImage(img, zx * ts, zy * ts, zw * ts, zh * ts); }
+      else { ctx.fillStyle = ZONE_COLORS[z.id] || '#222'; ctx.fillRect(zx * ts, zy * ts, zw * ts, zh * ts); }
       ctx.strokeStyle = '#0a0b0f';
       ctx.lineWidth = 2;
       ctx.strokeRect(zx * ts + 1, zy * ts + 1, zw * ts - 2, zh * ts - 2);
-      // 工位区高亮（可 build 的地方）
+      // 端点（可 build 的地方）青色高亮
       if (WORKSTATION_ZONES.has(z.id)) {
         ctx.strokeStyle = '#5AD2E6'; ctx.lineWidth = 3;
-        ctx.strokeRect(zx * ts + 3, zy * ts + 3, zw * ts - 6, zh * ts - 6);
+        ctx.strokeRect(zx * ts + 2, zy * ts + 2, zw * ts - 4, zh * ts - 4);
       }
-      // 家具（多件铺满，不再单调）：工位区摆桌椅显示器，其它区摆绿植等
-      const furn = ZONE_FURNITURE[z.id] || [];
-      const per = Math.max(1, zw - 1);
-      furn.forEach((pn, k) => {
-        const sp = propCanvas(pn);
-        const s = Math.round(ts * 0.9);
-        const gx = (zx + 1 + (k % per)) * ts - s / 2;
-        const gy = (zy + 1 + Math.floor(k / per) * 1.5) * ts;
-        if (gy + s > (zy + zh + 1) * ts) return;
-        ctx.drawImage(sp, gx, gy, s, s);
-      });
-      ctx.fillStyle = '#c7ccd1';
-      ctx.fillText((WORKSTATION_ZONES.has(z.id) ? '📶 ' : '') + t('zone.' + z.id, z.id), zx * ts + 5, zy * ts + 5);
+      // 区域名标签（深色底衷便于在详细背景上阅读）
+      const lbl = (WORKSTATION_ZONES.has(z.id) ? '📶 ' : '') + t('zone.' + z.id, z.id);
+      ctx.font = 'bold 12px "DotGothic16", monospace';
+      ctx.textBaseline = 'top';
+      const tw = ctx.measureText(lbl).width;
+      ctx.fillStyle = 'rgba(10,11,15,0.72)'; ctx.fillRect(zx * ts + 3, zy * ts + 3, tw + 8, 16);
+      ctx.fillStyle = '#e8f0f5'; ctx.fillText(lbl, zx * ts + 6, zy * ts + 5);
     }
 
     if (!frame) return;
@@ -160,28 +175,16 @@ export function OfficeCanvas({
       if (b.severity >= 4 && b.status === 'exploded') { ctx.strokeStyle = '#e85838'; ctx.lineWidth = 3; ctx.strokeRect(bx - 2, by - 2, sz + 4, sz + 4); }
     });
 
-    // 角色分层渲染：先画地面效果（工作人员视锥 + 热点信号环），再画精灵
+    // 角色渲染（不再画蓝/红/黄圈）：工作人员靠近时才可见（迷雾）
     const roleFor = (w: { id: string; label: string }) => roles[w.id] || (w.label === 'staff' ? 'boss' : ROLE_POOL[hashId(w.id) % 6]);
-    // PASS A：地面效果
+    const builderPts = frame.workers.filter((w) => w.label !== 'staff' && w.label !== 'dq').map((w) => w.pos);
+    const STAFF_FOG = 4; // 工作人员与选手曼哈顿距离 ≤ 4 时才显示位置
+    const staffVisible = (pos: [number, number]) => builderPts.some((p) => Math.abs(p[0] - pos[0]) + Math.abs(p[1] - pos[1]) <= STAFF_FOG);
+    // 精灵 + 状态
     for (const w of frame.workers) {
-      const cx = w.pos[0] * ts + ts / 2, cy = w.pos[1] * ts + ts / 2;
-      if (w.label === 'staff') {
-        ctx.fillStyle = 'rgba(232,88,56,0.10)';
-        ctx.beginPath(); ctx.arc(cx, cy, ts * 2.4, 0, Math.PI * 2); ctx.fill();
-        ctx.strokeStyle = 'rgba(232,88,56,0.4)'; ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cx, cy, ts * 2.4, 0, Math.PI * 2); ctx.stroke();
-      } else if (w.label === 'hotspot' || w.label === 'building') {
-        const rr = ts * (0.6 + (w.suspicion / 100) * 0.8);
-        ctx.strokeStyle = w.label === 'building' ? 'rgba(90,210,230,0.85)' : 'rgba(245,197,66,0.8)';
-        ctx.lineWidth = 2;
-        ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath(); ctx.arc(cx, cy, rr * 0.6, 0, Math.PI * 2); ctx.stroke();
-      }
-    }
-    // PASS B：精灵 + 状态
-    for (const w of frame.workers) {
-      const px = w.pos[0] * ts, py = w.pos[1] * ts;
       const isStaff = w.label === 'staff';
+      if (isStaff && !staffVisible(w.pos)) continue; // 迷雾：远处的工作人员隐藏
+      const px = w.pos[0] * ts, py = w.pos[1] * ts;
       const dq = w.label === 'dq';
       const sprite = characterCanvas(roleFor(w), isStaff ? undefined : specs?.[w.id]);
       ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(px + 3, py + ts - 3, ts - 6, 3);
@@ -199,8 +202,15 @@ export function OfficeCanvas({
         ctx.moveTo(px + ts - 2, py - ts * 0.3); ctx.lineTo(px + 2, py + ts * 0.7);
         ctx.stroke();
       } else {
-        ctx.fillStyle = '#0a0b0f'; ctx.fillRect(px, py + ts * 0.92, ts, 5);
-        ctx.fillStyle = '#5AD2E6'; ctx.fillRect(px + 1, py + ts * 0.92 + 1, Math.max(0, Math.min(1, w.contribution / 100)) * (ts - 2), 3);
+        // 头顶三条状态：build(青) / 精力(黄) / 灵感(紫)
+        const bw = ts - 8, bx = px + 4;
+        const insp = (w as any).inspiration || 0;
+        const rows: Array<[number, string]> = [[w.contribution, '#5AD2E6'], [w.energy, '#E8BE49'], [insp, '#A36ECE']];
+        rows.forEach((r, ri) => {
+          const yy = py - 24 + ri * 4;
+          ctx.fillStyle = 'rgba(10,11,15,0.85)'; ctx.fillRect(bx - 1, yy - 1, bw + 2, 4);
+          ctx.fillStyle = r[1]; ctx.fillRect(bx, yy, Math.max(0, Math.min(1, r[0] / 100)) * bw, 2);
+        });
         if (scapegoatId === w.id) { ctx.font = '16px "DotGothic16", monospace'; ctx.fillText('🎯', px - 4, py + ts * 0.1); }
       }
       const text = bubbles?.[w.id];
@@ -209,7 +219,7 @@ export function OfficeCanvas({
 
     // 统一绘制气泡（浮在最上层）
     for (const b of bubbleQueue) drawBubble(b.cx, b.baseY, b.text, b.boss);
-  }, [frame, roles, names, specs, bubbles, bossBubble, scapegoatId, t]);
+  }, [frame, roles, names, specs, bubbles, bossBubble, scapegoatId, t, setBgTick]);
 
   return <canvas ref={ref} className="office-stage" width={MAP_WIDTH * 48} height={height} style={{ aspectRatio: `${MAP_WIDTH * 48} / ${height}` }} />;
 }

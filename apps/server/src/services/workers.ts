@@ -27,6 +27,7 @@ export function createWorker(userId: string, name: string, role: RoleId, appeara
 }
 
 export function getWorker(wid: string): any {
+  if (!wid || typeof wid !== 'string') return undefined;
   return db.prepare('SELECT * FROM workers WHERE id = ?').get(wid);
 }
 

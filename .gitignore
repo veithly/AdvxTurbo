@@ -23,9 +23,10 @@ yarn-error.log*
 .DS_Store
 Thumbs.db
 
-# Editor
+# Editor / agent tooling
 .vscode/
 .idea/
+.qoder/
 *.swp
 *.swo
 
@@ -35,6 +36,7 @@ coverage/
 .playwright/
 test-results/
 e2e/artifacts/
+e2e/report/
 
 # Generated archives
 *.zip

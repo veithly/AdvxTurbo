@@ -16,6 +16,15 @@ function log(state: MatchState, kind: string, extra: Record<string, unknown> = {
 
 // —— 抓热点：只有在「工位区」开热点才能推进项目进度 ——
 const WORKSTATION_ZONES = new Set(['devDesk', 'designDesk', 'qa', 'serverRoom']);
+// —— 服务区（由旧的 主舞台/签到台/提交台 改造）——
+const REST_ZONE = 'meeting';       // 蓝盒子休息区：回部分精力，最多 3 个位置
+const CANTEEN_ZONE = 'hr';         // 食堂：等 5s 加灵感+精力
+const HOTEL_ZONE = 'release';      // 酒店排队区：一个一个排，补满精力，30s 冷却
+const REST_SLOTS = 3;
+const CANTEEN_WAIT_TICKS = 25;     // 5s @5Hz
+const HOTEL_SERVE_TICKS = 15;      // 3s @5Hz
+const HOTEL_COOLDOWN_TICKS = 150;  // 30s @5Hz
+const DQ_EXIT_TICKS = 12; // escort-out frames after DQ, then removed from the floor
 const MAX_DQ = 6; // 一局最多取消资格人数（戴戯剧但不全灭）
 
 // 帧标签（驱动前端渲染/解说/气泡）
@@ -23,6 +32,9 @@ function hotspotLabel(state: MatchState, w: EngineWorker): string {
   if (w.disqualified) return 'dq';
   if (state.tick < w.bustedUntilTick) return 'busted';
   if (w.hotspotOn) return WORKSTATION_ZONES.has(w.zone) ? 'building' : 'hotspot';
+  if (w.zone === HOTEL_ZONE) return 'queuing';
+  if (w.zone === CANTEEN_ZONE) return 'eating';
+  if (w.zone === REST_ZONE) return 'resting';
   const l = w.currentAction?.label;
   if (l === 'moving') return 'moving';
   if (l === 'coffee') return 'resting';
@@ -87,12 +99,12 @@ function applyHotspotDynamics(state: MatchState) {
     const qoder = state.tick < w.qoderUntilTick;
     w.hotspotOn = atWs && w.energy > 8;
     let rate = 0.05;
-    if (w.hotspotOn) rate = qoder ? 3 : 1;
+    if (w.hotspotOn) rate = (qoder ? 3 : 1) * (0.35 + 0.65 * w.energy / 100); // 精力越高 build 效率越高
     else if (qoder) rate = 0.6;
     w.visibleContribution += rate;
     w.verifiedContribution += rate;
     state.releaseProgress = clamp(state.releaseProgress + rate * 0.5, 0, 200);
-    if (w.hotspotOn) { w.buildTicks++; w.signal = clamp(w.signal + 3, 0, 100); w.energy = clamp(w.energy - 0.4, 0, 100); }
+    if (w.hotspotOn) { w.buildTicks++; w.signal = clamp(w.signal + 3, 0, 100); w.energy = clamp(w.energy - 0.6, 0, 100); } // build 明显消耗精力
     else { w.signal = clamp(w.signal - 2, 0, 100); w.energy = clamp(w.energy + 0.15, 0, 100); }
     w.suspicion = w.signal;
   }
@@ -102,7 +114,12 @@ function applyHotspotDynamics(state: MatchState) {
 // AI 群演选手的便宜移动（不跑沙盒）：走向分配的工位区，到了就停下由 applyHotspotDynamics 自动开热点 build
 const FILLER_HOMES = ['devDesk', 'designDesk', 'qa', 'serverRoom'];
 function moveFiller(state: MatchState, w: EngineWorker) {
-  const home = FILLER_HOMES[w.seat % FILLER_HOMES.length];
+  // 根据精力/灵感自然地去使用各服务区（让新区域有人气），否则回端点 build
+  let home: string;
+  if (w.energy < 16 && state.tick >= w.hotelCooldownUntil) home = HOTEL_ZONE;   // 太累→酒店补满
+  else if (w.energy < 38) home = REST_ZONE;                                     // 累→蓝盒子休息
+  else if (w.seat % 6 === 0 && w.inspiration < 45) home = CANTEEN_ZONE;          // 偶尔→食堂加灵感
+  else home = FILLER_HOMES[w.seat % FILLER_HOMES.length];
   const spot = ZONE_BY_ID[home]?.spot;
   if (!spot) return;
   if (w.zone === home) { w.currentAction = undefined; return; }
@@ -110,8 +127,54 @@ function moveFiller(state: MatchState, w: EngineWorker) {
   if (nx) { w.position = nx; w.zone = zoneAt(nx[0], nx[1]); w.currentAction = { type: 'moving', label: 'moving', startedAtTick: state.tick, endsAtTick: state.tick + 1 }; }
 }
 
+// 服务区结算（确定性）：休息区回精力(限 3 位) / 食堂等 5s 给灵感+精力 / 灵感来自社交(靠近)与溜达 / 酒店排队补满
+function applyZoneServices(state: MatchState) {
+  let restUsed = 0;
+  for (const w of state.workers) {
+    if (w.disqualified || state.tick < w.bustedUntilTick) { w.canteenWait = 0; continue; }
+    if (w.zone === REST_ZONE) {
+      if (restUsed < REST_SLOTS) { w.energy = clamp(w.energy + 1.4, 0, 100); restUsed++; }
+      w.canteenWait = 0;
+    } else if (w.zone === CANTEEN_ZONE) {
+      w.canteenWait++;
+      if (w.canteenWait >= CANTEEN_WAIT_TICKS) { w.inspiration = clamp(w.inspiration + 10, 0, 100); w.energy = clamp(w.energy + 15, 0, 100); w.canteenWait = 0; }
+    } else {
+      w.canteenWait = 0;
+    }
+    // 灵感：跟其他选手 social（靠近 ≤2）或多溜达
+    let near = 0;
+    for (const o of state.workers) { if (o.id !== w.id && !o.disqualified && manhattan(o.position, w.position) <= 2) { if (++near >= 3) break; } }
+    if (near > 0) w.inspiration = clamp(w.inspiration + 0.12 * near, 0, 100);
+    if (w.currentAction?.label === 'moving') w.inspiration = clamp(w.inspiration + 0.08, 0, 100);
+  }
+  applyHotel(state);
+}
+
+// 酒店排队区：一次只服务一人（3s 补满精力），排到后 30s 冷却
+function applyHotel(state: MatchState) {
+  if (state.hotelServingId) {
+    const w = state.workers.find((x) => x.id === state.hotelServingId);
+    if (!w || w.disqualified || w.zone !== HOTEL_ZONE) { state.hotelServingId = undefined; }
+    else if (state.tick >= state.hotelServeUntil) { w.energy = 100; w.hotelCooldownUntil = state.tick + HOTEL_COOLDOWN_TICKS; state.hotelServingId = undefined; }
+  }
+  if (!state.hotelServingId) {
+    for (const w of state.workers) {
+      if (w.disqualified || w.zone !== HOTEL_ZONE || state.tick < w.hotelCooldownUntil) continue;
+      state.hotelServingId = w.id; state.hotelServeUntil = state.tick + HOTEL_SERVE_TICKS; break;
+    }
+  }
+}
+
+// After disqualification: each tick walk toward the nearest exit until off-map (no longer occupies a tile / participates)
+function escortOut(state: MatchState, w: EngineWorker) {
+  const targetX = w.position[0] < MAP_WIDTH / 2 ? 0 : MAP_WIDTH - 1;
+  const dx = Math.sign(targetX - w.position[0]);
+  if (dx !== 0) { w.position = [w.position[0] + dx, w.position[1]]; w.zone = zoneAt(w.position[0], w.position[1]); }
+  w.currentAction = { type: 'moving', label: 'moving', startedAtTick: state.tick, endsAtTick: state.tick + 1 };
+}
+
 function disqualify(state: MatchState, w: EngineWorker) {  w.disqualified = true; w.hotspotOn = false; w.signal = 0; w.suspicion = 0;
-  w.visibleBlame = 100; w.bustedUntilTick = 1e9; w.violations++;
+  w.visibleBlame = 100; w.bustedUntilTick = 1e9; w.violations++; w.dqAtTick = state.tick;
   log(state, 'disqualified', { workerId: w.id });
 }
 
@@ -156,7 +219,7 @@ export function simulateMatch(input: SimulateInput): MatchReplay {
     // 员工按座位顺序决策/推进 (确定性)
     for (const w of state.workers) {
       if (state.tick < w.crashUntilTick) continue; // 精力崩溃
-      if (w.disqualified) continue;
+      if (w.disqualified) { escortOut(state, w); continue; }
       if (w.isFiller) { moveFiller(state, w); continue; } // 群演走便宜路径，不跑沙盒
       if (w.currentAction) advanceAction(state, w);
       if (!w.currentAction) decide(state, w);
@@ -164,6 +227,7 @@ export function simulateMatch(input: SimulateInput): MatchReplay {
     applyBugDynamics(state);
     applyPassiveResources(state);
     applyHotspotDynamics(state);
+    applyZoneServices(state);
     recordFrame(state);
   }
 
@@ -359,12 +423,13 @@ function recordFrame(state: MatchState, forcePhase?: string) {
     techDebt: Math.round(state.techDebt),
     boss: { pos: [state.staff[0] ? state.staff[0].position[0] : state.boss.position[0], state.staff[0] ? state.staff[0].position[1] : state.boss.position[1]], state: 'Patrol' },
     workers: [
-      ...state.workers.map((w) => ({
+      ...state.workers.filter((w) => !(w.disqualified && state.tick - (w.dqAtTick ?? state.tick) > DQ_EXIT_TICKS)).map((w) => ({
         id: w.id,
         pos: [w.position[0], w.position[1]] as [number, number],
         label: hotspotLabel(state, w),
         energy: Math.round(w.energy),
         stress: Math.round(w.stress),
+        inspiration: Math.round(w.inspiration),
         blame: Math.round(w.visibleBlame),
         contribution: Math.round(w.visibleContribution),
         suspicion: Math.round(w.suspicion),
@@ -373,7 +438,7 @@ function recordFrame(state: MatchState, forcePhase?: string) {
         id: s.id,
         pos: [s.position[0], s.position[1]] as [number, number],
         label: 'staff',
-        energy: 100, stress: 0, blame: 0, contribution: 0, suspicion: 0,
+        energy: 100, stress: 0, inspiration: 0, blame: 0, contribution: 0, suspicion: 0,
       })),
     ],
     bugs: state.bugs.map((b) => ({ id: b.id, severity: b.severity, status: b.status, owner: b.currentOwnerId })),

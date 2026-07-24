@@ -132,18 +132,19 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
     const evidenceAccuracy = 10 * (w.validEvidenceUsed / Math.max(1, w.totalEvidenceUsed));
     const secretScore = w.secretObjective.achieved ? w.secretObjective.value : 0;
     const qualityBonus = state.techDebt < 15 ? 5 : state.techDebt < 30 ? 2 : 0;
+    const inspirationScore = 20 * clamp(w.inspiration / 100, 0, 1); // 灵感度加成（完成项目后评分更高）
     const blamePenalty = clamp((w.finalBlame - 25) * 0.4, 0, 30);
     const ruleViolation = w.safeMode && w.hardTimeouts >= 3 ? 0 : 0;
     let score: number;
     if (projectSuccess) {
-      score = 40 + contributionScore + reputationScore + evidenceAccuracy + secretScore + qualityBonus - blamePenalty - ruleViolation;
+      score = 40 + contributionScore + reputationScore + evidenceAccuracy + secretScore + qualityBonus + inspirationScore - blamePenalty - ruleViolation;
       if (w.scapegoat && !noScape) {
         score -= 15; // ScapegoatPenalty
         if (w.heroicFix && w.confessed) score += 8; // 英雄式背锅
       }
     } else {
       const failMitigation = w.mitigationCredit;
-      score = 10 * Math.min(1, failMitigation / 20) * 1 + evidenceAccuracy + secretScore * 0.5 - w.originResponsibility * 3 - ruleViolation;
+      score = 10 * Math.min(1, failMitigation / 20) * 1 + evidenceAccuracy + secretScore * 0.5 + inspirationScore * 0.3 - w.originResponsibility * 3 - ruleViolation;
     }
     w.finalScore = Math.round(score * 100) / 100;
   }

@@ -12,15 +12,10 @@ export interface MatchGoal {
 }
 
 const POOL: Array<{ key: string; labelKey: string; thresholds?: number[] }> = [
-  { key: 'progress', labelKey: 'goal.progress', thresholds: [85, 95, 100] },
-  { key: 'stability', labelKey: 'goal.stability', thresholds: [45, 55, 65] },
-  { key: 'shipped', labelKey: 'goal.shipped' },
-  { key: 'noP0', labelKey: 'goal.noP0' },
-  { key: 'fixes', labelKey: 'goal.fixes', thresholds: [2, 3, 4] },
-  { key: 'noCaught', labelKey: 'goal.noCaught' },
-  { key: 'noDump', labelKey: 'goal.noDump' },
-  { key: 'lowBugs', labelKey: 'goal.lowBugs', thresholds: [1, 2] },
-  { key: 'calmBlame', labelKey: 'goal.calmBlame', thresholds: [35, 45, 55] },
+  { key: 'progress', labelKey: 'goal.progress', thresholds: [60, 75, 90] },
+  { key: 'buildTeam', labelKey: 'goal.buildTeam', thresholds: [6, 8, 10] },
+  { key: 'noDq', labelKey: 'goal.noDq' },
+  { key: 'submit', labelKey: 'goal.submit' },
 ];
 
 export function pickMatchGoals(seed: string, n = 4): MatchGoal[] {

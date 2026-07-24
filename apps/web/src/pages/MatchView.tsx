@@ -89,8 +89,7 @@ export function MatchView() {
   const builderFrames = frame.workers.filter((w) => realIds.has(w.id));
 
   const shownEvents = replay.timeline.filter((e) => e.tick <= frame.tick && HOT_KINDS.includes(e.kind)).slice(-40).reverse();
-  const scapegoat = res.participants.find((p) => p.scapegoat);
-  const respGraph = res.responsibilityGraph;
+  const champion = [...res.participants].sort((a, b) => a.placement - b.placement)[0];
 
   // ---- 实时目标条件（清楚地告诉玩家"这一局在干嘛"）----
   const upto = replay.timeline.filter((e) => e.tick <= frame.tick);
@@ -98,26 +97,16 @@ export function MatchView() {
   const exploded = upto.some((e) => e.kind === 'bug_exploded');
   const gctx = {
     progress: frame.releaseProgress,
-    stability: frame.stability,
-    shipped, exploded,
-    fixes: upto.filter((e) => e.kind === 'bug_fixed').length,
-    caught: upto.some((e) => e.kind === 'boss_caught'),
-    dumped: upto.some((e) => e.kind === 'force_assign'),
-    bugsOnField: frame.bugs.filter((b) => b.status !== 'resolved').length,
-    maxBlame: builderFrames.reduce((m, w) => Math.max(m, w.blame), 0),
+    buildingNow: frame.workers.filter((w) => w.label === 'building').length,
+    dq: upto.some((e) => e.kind === 'disqualified'),
   };
   const goals = pickMatchGoals(id || res.replayHash || 'x', 4);
   const goalMet = (g: any): boolean => {
     switch (g.key) {
-      case 'progress': return gctx.progress >= (g.n ?? 100);
-      case 'stability': return gctx.stability >= (g.n ?? 40);
-      case 'shipped': return gctx.shipped;
-      case 'noP0': return !gctx.exploded;
-      case 'fixes': return gctx.fixes >= (g.n ?? 3);
-      case 'noCaught': return !gctx.caught;
-      case 'noDump': return !gctx.dumped;
-      case 'lowBugs': return gctx.bugsOnField <= (g.n ?? 2);
-      case 'calmBlame': return gctx.maxBlame <= (g.n ?? 50);
+      case 'progress': return gctx.progress >= (g.n ?? 75);
+      case 'buildTeam': return gctx.buildingNow >= (g.n ?? 8);
+      case 'noDq': return !gctx.dq;
+      case 'submit': return gctx.progress >= 100;
       default: return false;
     }
   };
@@ -126,8 +115,8 @@ export function MatchView() {
   const modeId = (res as any).modeId as string | undefined;
   const winKey = (res as any).winConditionKey as string | undefined;
 
-  // ---- 当前领先/危险（谁最可能背锅）----
-  const liveWorkers = [...builderFrames].sort((a, b) => a.blame - b.blame);
+  // ---- 领先 / 垫底（按项目进度）----
+  const liveWorkers = [...builderFrames].sort((a, b) => b.contribution - a.contribution);
   const safest = liveWorkers[0];
   const riskiest = liveWorkers[liveWorkers.length - 1];
 
@@ -172,12 +161,12 @@ export function MatchView() {
           ); })}
           <span className="obj-cond" style={{ borderColor: 'var(--yellow)', color: 'var(--yellow)' }}>🏆 {t('goal.done')} {metCount}/{goals.length}</span>
         </div>
-        {winKey && <div className="small muted" style={{ marginTop: 6 }}>🏅 {t('obj.champRule')}: {t('winCond.' + winKey, winKey)}</div>}
+        {null}
       </div>
 
       {/* 全宽大舞台 */}
       <div className="stage-wrap">
-        <OfficeCanvas frame={frame} roles={roles} names={names} specs={specs} bubbles={bubbles} scapegoatId={done ? scapegoat?.workerId : undefined} height={640} />
+        <OfficeCanvas frame={frame} roles={roles} names={names} specs={specs} bubbles={bubbles} height={640} />
       </div>
 
       {/* 播放控制 */}
@@ -196,7 +185,7 @@ export function MatchView() {
         <input type="range" min={0} max={replay.frames.length - 1} value={idx} onChange={(e) => { setIdx(Number(e.target.value)); setPlaying(false); }} style={{ marginTop: 8 }} />
         <div className="grid c2" style={{ marginTop: 8 }}>
           <div><div className="small muted">🚀 {t('replay.progress')}</div><Bar value={frame.releaseProgress} color="blue" label={frame.releaseProgress + '%'} /></div>
-          <div><div className="small muted">🛡 {t('replay.stability')}</div><Bar value={frame.stability} color={frame.stability < 40 ? 'red' : 'green'} label={frame.stability + ''} /></div>
+          <div><div className="small muted">🔨 {t('hud.buildingNow')}</div><Bar value={Math.min(100, gctx.buildingNow * 5)} color="green" label={gctx.buildingNow + ''} /></div>
         </div>
       </div>
 
@@ -220,10 +209,11 @@ export function MatchView() {
               const w = frame.workers.find((x) => x.id === p.workerId);
               return (
                 <div key={p.workerId} className="who" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
-                  <div className="row"><Avatar role={p.role} spec={specs[p.workerId]} size={40} /><div><div className="small" style={{ color: 'var(--cream)' }}>{nameFor(p.workerId)}</div><div className="small muted">{t('role.' + p.role)}{done && p.scapegoat && <span className="scapegoat-badge">🎯</span>}</div></div></div>
+                  <div className="row"><Avatar role={p.role} spec={specs[p.workerId]} size={40} /><div><div className="small" style={{ color: 'var(--cream)' }}>{nameFor(p.workerId)}</div><div className="small muted">{t('role.' + p.role)}{done && p.placement === 1 && <span className="scapegoat-badge">🏆</span>}</div></div></div>
                   <div className="small muted">{w ? t('label.' + w.label, w.label) : '—'}</div>
                   <Bar value={w ? w.contribution : 0} color="blue" label={'build ' + (w ? w.contribution : 0)} />
                   <Bar value={w ? w.energy : 0} color="yellow" label={'⚡' + (w ? w.energy : 0)} />
+                  <Bar value={w ? ((w as any).inspiration || 0) : 0} color="purple" label={'💡' + (w ? ((w as any).inspiration || 0) : 0)} />
                 </div>
               );
             })}
@@ -235,10 +225,9 @@ export function MatchView() {
           {done && (
             <div className="card">
               <h3>🏁 {t('status.' + res.resultStatus)}</h3>
-              {scapegoat && (
-                <div style={{ background: 'var(--deep)', border: '2px solid var(--red)', padding: 8, margin: '8px 0' }}>
-                  <div className="row"><Avatar role={scapegoat.role} size={40} /><div><b style={{ color: 'var(--red2)' }}>{t('replay.scapegoat')}</b><div className="small">{nameFor(scapegoat.workerId)} · blame {scapegoat.finalBlame}</div></div></div>
-                  <p className="small" style={{ marginTop: 6 }}>{blameReason(t, respGraph.find((r) => r.workerId === scapegoat.workerId))}</p>
+              {champion && (
+                <div style={{ background: 'var(--deep)', border: '2px solid var(--green)', padding: 8, margin: '8px 0' }}>
+                  <div className="row"><Avatar role={champion.role} spec={specs[champion.workerId]} size={40} /><div><b style={{ color: 'var(--green2)' }}>🏆 {t('replay.champion')}</b><div className="small">{nameFor(champion.workerId)}</div></div></div>
                 </div>
               )}
               <table className="tbl">

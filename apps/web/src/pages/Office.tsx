@@ -19,12 +19,14 @@ export function Office() {
   const [newKey, setNewKey] = useState('');
   const [recent, setRecent] = useState<any[]>([]);
   const [queuing, setQueuing] = useState(false);
+  const [team, setTeam] = useState<string[]>([]);
+  const toggleTeam = (id: string) => setTeam((tm) => (tm.includes(id) ? (tm.length > 1 ? tm.filter((x) => x !== id) : tm) : [...tm, id]));
 
   useEffect(() => {
     if (!user) return;
     api.get('/api/workers').then((ws) => {
       setWorkers(ws);
-      if (ws[0]) selectWorker(ws[0]);
+      if (ws[0]) { selectWorker(ws[0]); setTeam([ws[0].id]); }
     });
   }, [user]);
 
@@ -57,7 +59,7 @@ export function Office() {
     setQueuing(true);
     sfx('match_start');
     try {
-      const { matchId } = await api.post('/api/matches/queue', { workerId: sel.id, players: 4 });
+      const { matchId } = await api.post('/api/matches/queue', { workerIds: team.length ? team : [sel.id], players: Math.max(4, team.length) });
       nav('/match/' + matchId + '?live=1');
     } catch (e: any) {
       toast.show(t(e.data?.message ? e.message : e.message, e.data?.message || e.message), 'err');
@@ -88,7 +90,8 @@ export function Office() {
 
       <div className="row" style={{ marginBottom: 16 }}>
         {workers.map((w) => (
-          <div key={w.id} className={`role-pick ${sel?.id === w.id ? 'sel' : ''}`} style={{ minWidth: 110 }} onClick={() => selectWorker(w)}>
+          <div key={w.id} className={`role-pick ${sel?.id === w.id ? 'sel' : ''}`} style={{ minWidth: 110, position: 'relative', outline: team.includes(w.id) ? '2px solid var(--green)' : 'none' }} onClick={() => selectWorker(w)}>
+            <button title={t('office.toggleTeam')} onClick={(e) => { e.stopPropagation(); toggleTeam(w.id); sfx('click', 0.3); }} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer', background: team.includes(w.id) ? 'var(--green)' : 'var(--gray2)', color: '#fff', fontWeight: 700 }}>{team.includes(w.id) ? '✓' : '＋'}</button>
             <Avatar role={w.role} size={48} spec={avatarFromWorker(w)} />
             <div className="small" style={{ color: 'var(--cream)' }}>{w.name}</div>
             <div className="small muted">{Math.round(w.rating)}</div>
@@ -114,8 +117,9 @@ export function Office() {
                 <input type="checkbox" style={{ width: 'auto' }} checked={!!sel.public_challenge_enabled} onChange={togglePublic} /> {t('office.publicChallenge')}
               </label>
             </div>
-            <div className="row" style={{ marginTop: 12 }}>
-              <button className="btn primary" disabled={queuing} onClick={startRanked}>{queuing ? <span className="spin">⚔</span> : '⚔'} {t('office.startRanked')}</button>
+            <div className="small muted" style={{ marginTop: 10 }}>👥 {t('office.team')}: {team.map((id) => workers.find((w) => w.id === id)?.name).filter(Boolean).join('、') || '—'}</div>
+            <div className="row" style={{ marginTop: 8 }}>
+              <button className="btn primary" disabled={queuing} onClick={startRanked}>{queuing ? <span className="spin">⚔</span> : '⚔'} {t('office.startRanked')}{team.length > 1 ? ` (${team.length}${t('office.teamCount')})` : ''}</button>
               <button className="btn purple" onClick={() => nav('/lab/' + sel.id)}>🧪 {t('nav.agentLab')}</button>
               <a className="btn green sm" href={`${api.base}/api/workers/${sel.id}/codex-pet.zip?token=${localStorage.getItem('token')}`} title={t('create.petHint')}>🐾 {t('office.downloadPet')}</a>
             </div>
@@ -163,17 +167,17 @@ export function Office() {
   );
 }
 
-const STANDARD_PROMPT = `你正在调优《谁来背锅？》中的一个 AI 员工。
+const STANDARD_PROMPT = `你正在调优《抢热点大作战》里的一名黑客松选手（builder）。
 目标优先级：
-1. 确保团队项目成功上线；
-2. 在不虚假指控的前提下降低最终背锅值；
-3. 提高可验证贡献和声望；
-4. 完成秘密目标；
-5. 保持代码简单、确定、可重放。
+1. 在「端点」偷偷开热点，把项目进度冲到 100%；
+2. 别和工作人员重合——被逮到当场取消参赛资格；
+3. 管理精力值，别累到崩溃；
+4. 抢到 Qoder 额度可大幅加速 build；
+5. 保持策略简单、确定、可重放。
 工作流程：
-- 先调用 GET /v1/agent/worker 读取上下文；
-- 读取当前策略和最近至少 5 场失败回放；
+- 先调用 GET /v1/agent/worker 读取上下文（自己/工作人员位置、精力、进度）；
+- 读取当前策略和最近至少 5 场回放，看你都是怎么被逮的；
 - 提出不超过 3 个具体改动；
 - 运行固定种子 A/B 回归 (POST /v1/agent/worker/simulations)；
-- 只有在项目成功率不明显下降且无硬超时时才发布；
+- 只有在项目完成度提升且没被更多次取消资格时才发布；
 - 发布时写明 changeNotes 和已知风险。`;
