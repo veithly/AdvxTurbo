@@ -26,7 +26,15 @@ app.use('/audio', express.static(AUDIO_DIR));
 app.use('/api', api);
 app.use('/v1', agentApi); // PRD 23 Base URL /v1
 
-app.get('/', (_req, res) => res.json({ name: 'BLAME GAME API', chain: chainInfo(), docs: '/api/config' }));
+// 生产环境：serve 前端构建产物
+const WEB_DIST = path.join(REPO_ROOT, 'apps/web/dist');
+import fs from 'node:fs';
+const hasWebDist = fs.existsSync(WEB_DIST);
+if (hasWebDist) {
+  app.use(express.static(WEB_DIST));
+}
+
+app.get('/health', (_req, res) => res.json({ name: 'BLAME GAME API', chain: chainInfo(), status: 'ok' }));
 
 const server = http.createServer(app);
 
@@ -68,10 +76,16 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => clearInterval(timer));
 });
 
+// SPA fallback：所有非 API/静态路径返回 index.html
+if (hasWebDist) {
+  app.get('*', (_req, res) => res.sendFile(path.join(WEB_DIST, 'index.html')));
+}
+
 const mode = initChain();
 server.listen(PORT, () => {
   console.log(`\n  《谁来背锅？ / BLAME GAME》 API`);
   console.log(`  ▸ http://localhost:${PORT}`);
   console.log(`  ▸ Chain mode: ${mode} (${chainInfo().name} / chainId ${chainInfo().chainId})`);
-  console.log(`  ▸ Assets: /assets  Audio: /audio  WS: /ws/match?id=<matchId>\n`);
+  console.log(`  ▸ Web UI: ${hasWebDist ? 'serving from apps/web/dist' : 'not built (dev mode)'}`);
+  console.log(`  ▸ Audio: /audio  WS: /ws/match?id=<matchId>\n`);
 });

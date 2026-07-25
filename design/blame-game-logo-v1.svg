@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="680" viewBox="0 0 1600 680" role="img" aria-labelledby="title desc">
+  <title id="title">Blame Game logo</title>
+  <desc id="desc">A red hotspot signal escapes a cyan surveillance frame.</desc>
+  <rect width="1600" height="680" fill="#07101A"/>
+
+  <!-- Escape signal: a hotspot breaking out of an incomplete tracking frame. -->
+  <g fill="none" stroke="#5AD2E6" stroke-width="24" stroke-linecap="square" stroke-linejoin="miter">
+    <path d="M130 350V166H314"/>
+    <path d="M438 166H522V250"/>
+    <path d="M130 474V558H314"/>
+    <path d="M452 558H522V488"/>
+  </g>
+  <g fill="none" stroke="#E84B3C" stroke-width="18" stroke-linecap="square">
+    <path d="M345 333L365 313"/>
+    <path d="M375 363L400 338"/>
+  </g>
+  <circle cx="425" cy="413" r="56" fill="#E84B3C"/>
+  <circle cx="425" cy="413" r="29" fill="#F5C542"/>
+  <path d="M477 465L548 536" fill="none" stroke="#F5C542" stroke-width="16" stroke-linecap="square"/>
+
+  <!-- Wordmark stays deliberately plain; the motion lives in the mark. -->
+  <g transform="translate(650 0) skewX(-7)">
+    <text x="0" y="326" fill="#F7F2E8" font-family="Arial Black, Arial, sans-serif" font-size="126" font-weight="900" letter-spacing="-5">BLAME</text>
+    <text x="0" y="462" fill="#F7F2E8" font-family="Arial Black, Arial, sans-serif" font-size="126" font-weight="900" letter-spacing="-5">GAME</text>
+    <rect x="6" y="498" width="500" height="8" fill="#5AD2E6"/>
+    <text x="0" y="568" fill="#A5C8D2" font-family="Arial, PingFang SC, Microsoft YaHei, sans-serif" font-size="42" font-weight="700" letter-spacing="9">谁来背锅？</text>
+  </g>
+</svg>
