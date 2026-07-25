@@ -2,6 +2,9 @@ import { ROLES, ZONE_BY_ID, phaseAt } from '@blame/shared';
 import type { MeContext, CoworkerView, OfficeContext, OfficeTaskView, BugView } from '@blame/shared';
 import type { EngineWorker, MatchState } from './state.js';
 import { bossSees, manhattan } from './pathfind.js';
+import {
+  ENDPOINT_ZONES, REST_ZONE, CANTEEN_ZONE, HOTEL_ZONE, WORKSHOP_ZONE, SPONSOR_ZONE, RESTROOM_ZONE,
+} from './venue.js';
 
 function band(v: number): 'low' | 'medium' | 'high' {
   if (v < 34) return 'low';
@@ -33,6 +36,12 @@ export function buildMe(state: MatchState, w: EngineWorker): MeContext {
       zone: w.zone,
       energy: Math.round(w.energy),
       stress: Math.round(w.stress),
+      inspiration: Math.round(w.inspiration),
+      hotspotOn: w.hotspotOn,
+      signal: Math.round(w.signal),
+      qoderTicksLeft: Math.max(0, w.qoderUntilTick - state.tick),
+      hotelCooldownTicks: Math.max(0, w.hotelCooldownUntil - state.tick),
+      sponsorCooldownTicks: Math.max(0, w.sponsorCdUntil - state.tick),
       reputation: Math.round(w.reputation),
       visibleBlame: Math.round(w.visibleBlame),
       contribution: Math.round(w.visibleContribution),
@@ -104,6 +113,10 @@ export function buildOffice(state: MatchState, self: EngineWorker): OfficeContex
     deadlineInTicks: Math.max(0, b.deadlineTick - state.tick),
     zone: 'serverRoom',
   }));
+  // 各端点当前开热点人数（工作人员情报 = 地图上的热点覆盖圈，对所有人可见）
+  const endpointHeat: Record<string, number> = {};
+  for (const e of ENDPOINT_ZONES) endpointHeat[e] = 0;
+  for (const w2 of state.workers) { if (!w2.disqualified && w2.hotspotOn && endpointHeat[w2.zone] !== undefined) endpointHeat[w2.zone]++; }
   return {
     tick: state.tick,
     phase,
@@ -122,6 +135,17 @@ export function buildOffice(state: MatchState, self: EngineWorker): OfficeContex
     bugs,
     activeEvents: state.activeEvents.map((e) => ({ cardId: e.cardId, effect: e.effect, endsInTicks: Math.max(0, e.endsAtTick - state.tick) })),
     map: { width: 20, height: 14, zones: Object.keys(ZONE_BY_ID) },
+    staff: state.staff.map((s) => ({ id: s.id, position: [s.position[0], s.position[1]] as [number, number], distanceToMe: manhattan(s.position, self.position) })),
+    venue: {
+      endpoints: [...ENDPOINT_ZONES],
+      rest: REST_ZONE,
+      canteen: CANTEEN_ZONE,
+      hotel: HOTEL_ZONE,
+      workshop: WORKSHOP_ZONE,
+      sponsor: SPONSOR_ZONE,
+      restroom: RESTROOM_ZONE,
+    },
+    endpointHeat,
     publishReady: computePublishReady(state),
     deterministicRandomHint: undefined,
   };

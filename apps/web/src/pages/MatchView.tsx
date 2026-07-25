@@ -27,8 +27,21 @@ export function MatchView() {
   const [playing, setPlaying] = useState(false);
   const [speed, setSpeed] = useState(1); // 默认 1×，方便看清
   const [done, setDone] = useState(false);
+  const [showSettle, setShowSettle] = useState(false);
   const timerRef = useRef<any>(null);
   const lastEventTick = useRef(-1);
+  const [ownIds, setOwnIds] = useState<Set<string>>(new Set());
+  const [volunteers, setVolunteers] = useState<Array<{ name: string; spec?: any }>>([]);
+
+  useEffect(() => {
+    // 拉取当前玩家自己的选手（圈 YOU）与志愿者（到场执勤，顶替工作人员形象）
+    api.get('/api/workers').then((ws: any[]) => {
+      setOwnIds(new Set((ws || []).map((w) => w.id)));
+      const vols: Array<{ name: string; spec?: any }> = [];
+      for (const w of ws || []) { try { const a = JSON.parse(w.appearance_json || '{}'); if (a.volunteer) vols.push({ name: w.name, spec: a.charSpec }); } catch {} }
+      setVolunteers(vols);
+    }).catch(() => {});
+  }, []);
 
   useEffect(() => {
     api.get('/api/matches/' + id + '/replay').then((r) => {
@@ -47,12 +60,13 @@ export function MatchView() {
         if (i >= replay.frames.length - 1) {
           setPlaying(false);
           setDone(true);
+          setShowSettle(true);
           sfx(replay.result.projectSuccess ? 'success' : 'error');
           return i;
         }
         return i + 1;
       });
-    }, Math.max(35, 120 / speed));
+    }, Math.max(90, 340 / speed));
     return () => clearInterval(timerRef.current);
   }, [playing, speed, replay]);
 
@@ -85,11 +99,24 @@ export function MatchView() {
   const nameFor = (wid: string) => pById[wid]?.worker_name || t('role.' + (roles[wid] || 'engineer'));
   const names: Record<string, string> = {};
   res.participants.forEach((p) => { names[p.workerId] = nameFor(p.workerId); });
+  // 自己的志愿者到场执勤：顶替工作人员的形象与名字（纯观感）
+  volunteers.forEach((v, i) => { const sid = 'staff' + i; if (v.spec) specs[sid] = v.spec; names[sid] = v.name; });
   const realIds = new Set(res.participants.map((p) => p.workerId));
   const builderFrames = frame.workers.filter((w) => realIds.has(w.id));
 
   const shownEvents = replay.timeline.filter((e) => e.tick <= frame.tick && HOT_KINDS.includes(e.kind)).slice(-40).reverse();
   const champion = [...res.participants].sort((a, b) => a.placement - b.placement)[0];
+  // 最佳 Builder：build（有效贡献）最高的真实参赛者
+  const bestBuilder = [...res.participants].sort((a, b) => (b.verifiedContribution - a.verifiedContribution) || (a.placement - b.placement))[0];
+  // 被取消参赛资格：整局 timeline 里所有 disqualified 事件（含 AI 群演），去重保留顺序
+  const dqIds: string[] = [];
+  for (const e of replay.timeline) { if (e.kind === 'disqualified' && e.workerId && !dqIds.includes(e.workerId)) dqIds.push(e.workerId); }
+  // 群演名字：引擎里 filler id 为 fb_<i>，名字为「选手<i+1>」
+  const displayName = (wid: string) => {
+    if (realIds.has(wid)) return nameFor(wid);
+    const m = /^fb_(\d+)$/.exec(wid);
+    return m ? t('common.player', '选手') + ' ' + (Number(m[1]) + 1) : wid;
+  };
 
   // ---- 实时目标条件（清楚地告诉玩家"这一局在干嘛"）----
   const upto = replay.timeline.filter((e) => e.tick <= frame.tick);
@@ -115,10 +142,7 @@ export function MatchView() {
   const modeId = (res as any).modeId as string | undefined;
   const winKey = (res as any).winConditionKey as string | undefined;
 
-  // ---- 领先 / 垫底（按项目进度）----
-  const liveWorkers = [...builderFrames].sort((a, b) => b.contribution - a.contribution);
-  const safest = liveWorkers[0];
-  const riskiest = liveWorkers[liveWorkers.length - 1];
+  // （已移除“领先/垫底”显示）
 
   // ---- 解说：最新一条 + 滚动 ----
   const latestEv = shownEvents[0];
@@ -137,6 +161,76 @@ export function MatchView() {
 
   return (
     <div className="content">
+      {showSettle && (
+        <div className="settle-overlay" onClick={() => setShowSettle(false)}>
+          <div className="settle-card" onClick={(e) => e.stopPropagation()}>
+            <button className="settle-close" onClick={() => setShowSettle(false)}>✕</button>
+            <div className="settle-head">
+              <h2>{t('settle.title')}</h2>
+              <div className="row" style={{ justifyContent: 'center', gap: 8 }}>
+                <StatusTag status={res.resultStatus} />
+                <span className="tag blue">🚀 {t('settle.finalProgress')} {frame.releaseProgress}%</span>
+                <span className="tag yellow">🔥 {res.memeHeat}</span>
+              </div>
+              <div className="small muted" style={{ marginTop: 6 }}>{t('settle.subtitle')}</div>
+            </div>
+
+            {/* 最佳 Builder */}
+            {bestBuilder && (
+              <div className="settle-best">
+                <div className="settle-crown">🏆</div>
+                <Avatar role={bestBuilder.role} spec={specs[bestBuilder.workerId]} size={72} />
+                <div>
+                  <div className="settle-best-label">{t('settle.bestBuilder')}</div>
+                  <div className="settle-best-name">{nameFor(bestBuilder.workerId)}{bestBuilder.secretObjectiveAchieved && ' ⭐'}</div>
+                  <div className="small muted">{t('role.' + bestBuilder.role)} · {t('settle.buildScore')} {bestBuilder.verifiedContribution} · #{bestBuilder.placement}</div>
+                </div>
+              </div>
+            )}
+
+            {/* 被取消参赛资格 */}
+            <div className="settle-dq">
+              <div className="settle-section-title">🚫 {t('settle.dqList')} <span className="tag red">{t('settle.dqCount').replace('{n}', String(dqIds.length))}</span></div>
+              {dqIds.length === 0 ? (
+                <div className="small muted">{t('settle.dqNone')}</div>
+              ) : (
+                <div className="settle-dq-grid">
+                  {dqIds.map((wid) => (
+                    <div key={wid} className="settle-dq-chip">
+                      <Avatar role={roles[wid] || 'engineer'} spec={specs[wid]} size={32} />
+                      <span>{displayName(wid)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* 完整名次 */}
+            <table className="tbl settle-tbl">
+              <thead><tr><th>#</th><th>{t('leaderboard.provider')}</th><th>{t('common.you')}</th><th>{t('settle.buildScore')}</th><th>{t('replay.finalScore')}</th></tr></thead>
+              <tbody>
+                {[...res.participants].sort((a, b) => a.placement - b.placement).map((p) => {
+                  const mp = pById[p.workerId];
+                  return (
+                    <tr key={p.workerId} className={p.workerId === bestBuilder?.workerId ? 'settle-row-best' : ''}>
+                      <td>{p.placement === 1 ? '👑' : p.placement}</td>
+                      <td><ProviderLogo id={mp?.agent_tool} size={20} /></td>
+                      <td>{nameFor(p.workerId)}{p.scapegoat && ' 🐐'}{p.secretObjectiveAchieved && ' ⭐'}</td>
+                      <td>{p.verifiedContribution}</td>
+                      <td>{p.finalScore}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            <div className="row" style={{ justifyContent: 'center', marginTop: 12, gap: 8 }}>
+              <button className="btn sm" onClick={() => { setShowSettle(false); setIdx(0); setDone(false); setPlaying(true); sfx('click', 0.3); }}>🎬 {t('settle.viewReplay')}</button>
+              <button className="btn sm purple" onClick={() => { sfx('click', 0.3); nav('/leaderboard'); }}>🏆 {t('settle.leaderboard')}</button>
+            </div>
+          </div>
+        </div>
+      )}
       <div className="row between">
         <h2 className="page-title">🎬 {t('replay.title')}</h2>
         <div className="row">
@@ -150,10 +244,6 @@ export function MatchView() {
       <div className="objective">
         <div className="row between">
           <div className="obj-title">🎯 {t('obj.goal')}</div>
-          <div className="obj-leader small">
-            {t('obj.safest')}: <b style={{ color: 'var(--green2)' }}>{t('role.' + roles[safest?.id])}</b>
-            {'   '}· {t('obj.risk')}: <b style={{ color: 'var(--red2)' }}>{t('role.' + roles[riskiest?.id])}</b>
-          </div>
         </div>
         <div className="obj-conds">
           {goals.map((g) => { const met = goalMet(g); return (
@@ -166,7 +256,7 @@ export function MatchView() {
 
       {/* 全宽大舞台 */}
       <div className="stage-wrap">
-        <OfficeCanvas frame={frame} roles={roles} names={names} specs={specs} bubbles={bubbles} height={640} />
+        <OfficeCanvas frame={frame} roles={roles} names={names} specs={specs} bubbles={bubbles} ownIds={ownIds} height={640} />
       </div>
 
       {/* 播放控制 */}
@@ -174,9 +264,9 @@ export function MatchView() {
         <div className="row between">
           <div className="row">
             <button className="btn sm primary" onClick={() => { setPlaying(!playing); sfx('click', 0.3); }}>{playing ? '⏸ ' + t('replay.pause') : '▶ ' + t('replay.play')}</button>
-            <button className="btn sm" onClick={() => { setIdx(0); setDone(false); }}>⏮</button>
+            <button className="btn sm" onClick={() => { setIdx(0); setDone(false); setShowSettle(false); }}>⏮</button>
             <span className="small muted" style={{ marginLeft: 6 }}>{t('replay.speed')}</span>
-            {[1, 2, 4].map((s) => (
+            {[0.5, 1, 2, 4].map((s) => (
               <button key={s} className={`btn sm ${speed === s ? 'primary' : ''}`} onClick={() => setSpeed(s)}>{s}×</button>
             ))}
           </div>
@@ -184,8 +274,8 @@ export function MatchView() {
         </div>
         <input type="range" min={0} max={replay.frames.length - 1} value={idx} onChange={(e) => { setIdx(Number(e.target.value)); setPlaying(false); }} style={{ marginTop: 8 }} />
         <div className="grid c2" style={{ marginTop: 8 }}>
-          <div><div className="small muted">🚀 {t('replay.progress')}</div><Bar value={frame.releaseProgress} color="blue" label={frame.releaseProgress + '%'} /></div>
-          <div><div className="small muted">🔨 {t('hud.buildingNow')}</div><Bar value={Math.min(100, gctx.buildingNow * 5)} color="green" label={gctx.buildingNow + ''} /></div>
+          <div className="stat-readout"><div className="small muted">🚀 {t('replay.progress')}</div><div className="stat-num blue">{frame.releaseProgress}<span className="stat-unit">%</span></div></div>
+          <div className="stat-readout"><div className="small muted">🔨 {t('hud.buildingNow')}</div><div className="stat-num green">{gctx.buildingNow}</div></div>
         </div>
       </div>
 
@@ -211,10 +301,11 @@ export function MatchView() {
                 <div key={p.workerId} className="who" style={{ flexDirection: 'column', alignItems: 'stretch' }}>
                   <div className="row"><Avatar role={p.role} spec={specs[p.workerId]} size={40} /><div><div className="small" style={{ color: 'var(--cream)' }}>{nameFor(p.workerId)}</div><div className="small muted">{t('role.' + p.role)}{done && p.placement === 1 && <span className="scapegoat-badge">🏆</span>}</div></div></div>
                   <div className="small muted">{w ? t('label.' + w.label, w.label) : '—'}</div>
-                  <Bar value={w ? w.contribution : 0} color="blue" label={'build ' + (w ? w.contribution : 0)} />
                   <Bar value={w ? w.energy : 0} color="yellow" label={'⚡' + (w ? w.energy : 0)} />
-                  <Bar value={w ? ((w as any).inspiration || 0) : 0} color="purple" label={'💡' + (w ? ((w as any).inspiration || 0) : 0)} />
-                </div>
+                  <div className="who-stats">
+                    <span className="who-stat build">🔨 {t('hud.build', 'build')}<b>{w ? w.contribution : 0}</b></span>
+                    <span className="who-stat insp">💡 {t('hud.inspiration', '灵感')}<b>{w ? ((w as any).inspiration || 0) : 0}</b></span>
+                  </div>                </div>
               );
             })}
           </div>

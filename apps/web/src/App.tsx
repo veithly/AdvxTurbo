@@ -1,6 +1,6 @@
 import React, { useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
-import { Nav, ToastHost } from './ui.js';
+import { Nav, ToastHost, WalletAutoLink } from './ui.js';
 import { useAuth } from './store.js';
 import { Home } from './pages/Home.js';
 import { Auth } from './pages/Auth.js';
@@ -28,6 +28,7 @@ export function App() {
   return (
     <div className="app">
       <Nav />
+      <WalletAutoLink />
       <Routes>
         <Route path="/" element={<Home />} />
         <Route path="/auth" element={<Auth />} />

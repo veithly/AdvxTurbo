@@ -5,6 +5,7 @@ import { api } from '../api.js';
 import { useAuth } from '../store.js';
 import { Avatar, Bar, useToast, useConfig, StatusTag, avatarFromWorker } from '../ui.js';
 import { sfx } from '../audio.js';
+import { STANDARD_AGENT_PROMPT } from './Docs.js';
 
 export function Office() {
   const t = useT();
@@ -20,13 +21,17 @@ export function Office() {
   const [recent, setRecent] = useState<any[]>([]);
   const [queuing, setQueuing] = useState(false);
   const [team, setTeam] = useState<string[]>([]);
+  // 志愿者（工作人员阵营）不能出战，比赛时自动到场执勤
+  const isVol = (w: any) => { try { return !!JSON.parse(w.appearance_json || '{}').volunteer; } catch { return false; } };
   const toggleTeam = (id: string) => setTeam((tm) => (tm.includes(id) ? (tm.length > 1 ? tm.filter((x) => x !== id) : tm) : [...tm, id]));
 
   useEffect(() => {
     if (!user) return;
     api.get('/api/workers').then((ws) => {
       setWorkers(ws);
-      if (ws[0]) { selectWorker(ws[0]); setTeam([ws[0].id]); }
+      if (ws[0]) selectWorker(ws[0]);
+      const firstBuilder = ws.find((w: any) => { try { return !JSON.parse(w.appearance_json || '{}').volunteer; } catch { return true; } });
+      if (firstBuilder) setTeam([firstBuilder.id]);
     });
   }, [user]);
 
@@ -45,6 +50,28 @@ export function Office() {
     const k = await api.post(`/api/workers/${sel.id}/keys`, { name: 'key-' + (keys.length + 1) });
     setNewKey(k.plaintext);
     setKeys(await api.get('/api/workers/' + sel.id + '/keys'));
+    sfx('success');
+    return k.plaintext as string;
+  }
+
+  // agentank 式：轮换 key —— 生成新 key 并吊销旧的，明文只显示一次
+  async function rotateKey() {
+    sfx('click');
+    const olds = keys.filter((k) => !k.revoked_at);
+    const k = await api.post(`/api/workers/${sel.id}/keys`, { name: 'key-' + (keys.length + 1) });
+    for (const old of olds) { try { await api.post(`/api/keys/${old.id}/revoke`); } catch {} }
+    setNewKey(k.plaintext);
+    setKeys(await api.get('/api/workers/' + sel.id + '/keys'));
+    sfx('success');
+  }
+
+  // 复制关键信息：指南链接 + API Base + Worker Key，直接喂给 Agent
+  async function copyKeyInfo() {
+    const key = newKey || (await genKey());
+    const guide = location.origin + '/docs';
+    const base = (api.base || location.origin) + '/v1';
+    navigator.clipboard.writeText(`游戏: Advx 极速版 / ADVX TURBO\n指南 Guide: ${guide}\nAPI Base: ${base}\nWorker Key: ${key}\n认证: Authorization: Bearer <worker_key>\n首个请求: GET ${base}/agent/worker`);
+    toast.show(t('common.copied'));
     sfx('success');
   }
 
@@ -79,7 +106,8 @@ export function Office() {
     );
   }
 
-  const prompt = STANDARD_PROMPT;
+  const prompt = STANDARD_AGENT_PROMPT;
+  const activeKey = keys.find((k) => !k.revoked_at);
 
   return (
     <div className="content">
@@ -91,7 +119,9 @@ export function Office() {
       <div className="row" style={{ marginBottom: 16 }}>
         {workers.map((w) => (
           <div key={w.id} className={`role-pick ${sel?.id === w.id ? 'sel' : ''}`} style={{ minWidth: 110, position: 'relative', outline: team.includes(w.id) ? '2px solid var(--green)' : 'none' }} onClick={() => selectWorker(w)}>
-            <button title={t('office.toggleTeam')} onClick={(e) => { e.stopPropagation(); toggleTeam(w.id); sfx('click', 0.3); }} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer', background: team.includes(w.id) ? 'var(--green)' : 'var(--gray2)', color: '#fff', fontWeight: 700 }}>{team.includes(w.id) ? '✓' : '＋'}</button>
+            {isVol(w)
+              ? <span title="志愿者不出战，比赛时自动到场执勤" style={{ position: 'absolute', top: 4, right: 4, fontSize: 14 }}>🦺</span>
+              : <button title={t('office.toggleTeam')} onClick={(e) => { e.stopPropagation(); toggleTeam(w.id); sfx('click', 0.3); }} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer', background: team.includes(w.id) ? 'var(--green)' : 'var(--gray2)', color: '#fff', fontWeight: 700 }}>{team.includes(w.id) ? '✓' : '＋'}</button>}
             <Avatar role={w.role} size={48} spec={avatarFromWorker(w)} />
             <div className="small" style={{ color: 'var(--cream)' }}>{w.name}</div>
             <div className="small muted">{Math.round(w.rating)}</div>
@@ -130,22 +160,42 @@ export function Office() {
           </div>
 
           <div className="card">
-            <h3>🔑 {t('office.workerKey')}</h3>
-            <p className="small muted">{t('office.giveToAgent')}</p>
-            {keys.map((k) => (
-              <div key={k.id} className="row between" style={{ borderBottom: '1px solid var(--gray2)', padding: '4px 0' }}>
-                <span className="small">{k.name} <code>{k.display}</code></span>
-                {k.revoked_at ? <span className="tag gray">revoked</span> : <button className="btn sm red" onClick={async () => { await api.post(`/api/keys/${k.id}/revoke`); setKeys(await api.get('/api/workers/' + sel.id + '/keys')); }}>revoke</button>}
-              </div>
-            ))}
-            <button className="btn sm" style={{ marginTop: 8 }} onClick={genKey}>＋ {t('office.newKey')}</button>
+            <div className="row between">
+              <h3>🔌 {t('lab.tabConnect')}</h3>
+              <button className="btn primary sm" onClick={copyKeyInfo}>🔑 {t('lab.copyInfo')}</button>
+            </div>
+            <p className="small muted">{t('lab.connectHint')}</p>
+
+            {/* agentank 式信息行：标签 | 值 | 复制 */}
+            <div className="row" style={{ gap: 0, marginTop: 6 }}>
+              <span className="small" style={{ border: '2px solid var(--gray2)', padding: '8px 10px', minWidth: 96, color: 'var(--cream)' }}>WORKER KEY</span>
+              <code className="small" style={{ border: '2px solid var(--gray2)', borderLeft: 'none', padding: '8px 10px', flex: 1, color: 'var(--red2)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                {newKey || activeKey?.display || '——'}
+              </code>
+              <button className="btn sm" style={{ borderLeft: 'none' }} title={t('common.copy')} onClick={() => { if (!newKey) { toast.show(t('office.keyOnce'), 'err'); return; } navigator.clipboard.writeText(newKey); toast.show(t('common.copied')); }}>📋</button>
+            </div>
+            <div className="row" style={{ gap: 0, marginTop: 8 }}>
+              <span className="small" style={{ border: '2px solid var(--gray2)', padding: '8px 10px', minWidth: 96, color: 'var(--cream)' }}>{t('lab.guide')}</span>
+              <code className="small" style={{ border: '2px solid var(--gray2)', borderLeft: 'none', padding: '8px 10px', flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', cursor: 'pointer' }} onClick={() => nav('/docs')}>
+                {location.origin}/docs
+              </code>
+              <button className="btn sm" style={{ borderLeft: 'none' }} title={t('common.copy')} onClick={() => { navigator.clipboard.writeText(location.origin + '/docs'); toast.show(t('common.copied')); }}>📋</button>
+            </div>
+
+            <div className="row" style={{ marginTop: 10 }}>
+              <button className="btn sm" onClick={rotateKey}>🔁 {t('lab.rotateKey')}</button>
+              <button className="btn sm cyan" onClick={() => nav('/docs')}>📖 {t('lab.openGuide')} →</button>
+            </div>
             {newKey && (
               <>
                 <p className="small" style={{ color: 'var(--red2)', marginTop: 8 }}>⚠ {t('office.keyOnce')}</p>
                 <div className="keybox">{newKey}</div>
-                <button className="btn sm" onClick={() => { navigator.clipboard.writeText(newKey); toast.show(t('common.copied')); }}>📋 {t('common.copy')}</button>
               </>
             )}
+            {keys.some((k) => k.revoked_at) && (
+              <p className="small muted" style={{ marginTop: 6 }}>{keys.filter((k) => k.revoked_at).length} × revoked</p>
+            )}
+
             <h4 style={{ marginTop: 16, color: 'var(--cream)' }}>{t('office.prompt')}</h4>
             <pre className="code" style={{ maxHeight: 160 }}>{prompt}</pre>
             <button className="btn sm cyan" onClick={() => { navigator.clipboard.writeText(prompt); toast.show(t('common.copied')); }}>📋 {t('common.copy')}</button>
@@ -166,18 +216,3 @@ export function Office() {
     </div>
   );
 }
-
-const STANDARD_PROMPT = `你正在调优《抢热点大作战》里的一名黑客松选手（builder）。
-目标优先级：
-1. 在「端点」偷偷开热点，把项目进度冲到 100%；
-2. 别和工作人员重合——被逮到当场取消参赛资格；
-3. 管理精力值，别累到崩溃；
-4. 抢到 Qoder 额度可大幅加速 build；
-5. 保持策略简单、确定、可重放。
-工作流程：
-- 先调用 GET /v1/agent/worker 读取上下文（自己/工作人员位置、精力、进度）；
-- 读取当前策略和最近至少 5 场回放，看你都是怎么被逮的；
-- 提出不超过 3 个具体改动；
-- 运行固定种子 A/B 回归 (POST /v1/agent/worker/simulations)；
-- 只有在项目完成度提升且没被更多次取消资格时才发布；
-- 发布时写明 changeNotes 和已知风险。`;

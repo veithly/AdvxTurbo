@@ -244,6 +244,12 @@ export interface MeContext {
     zone: string;
     energy: number;
     stress: number;
+    inspiration: number;
+    hotspotOn: boolean;
+    signal: number;
+    qoderTicksLeft: number;
+    hotelCooldownTicks: number;
+    sponsorCooldownTicks: number;
     reputation: number;
     visibleBlame: number;
     contribution: number;
@@ -309,6 +315,18 @@ export interface OfficeContext {
   bugs: BugView[];
   activeEvents: Array<{ cardId: string; effect: string; endsInTicks: number }>;
   map: { width: number; height: number; zones: string[] };
+  // —— 《Advx 极速版》会场视图 ——
+  staff: Array<{ id: string; position: [number, number]; distanceToMe: number }>;
+  venue: {
+    endpoints: string[];
+    rest: string;
+    canteen: string;
+    hotel: string;
+    workshop: string;
+    sponsor: string;
+    restroom: string;
+  };
+  endpointHeat: Record<string, number>;
   publishReady: boolean;
   deterministicRandomHint?: number;
 }

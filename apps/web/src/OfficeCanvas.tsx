@@ -6,9 +6,9 @@ import { characterCanvas, propCanvas, type CharSpec } from './pixelart.js';
 
 // 每个区域渲染真实的详细房间背景图（图中所示的 8-bit 房间）
 const BG_SRC: Record<string, string> = {
-  devDesk: '/bg/open_office.png', designDesk: '/bg/open_office.png', qa: '/bg/open_office.png', serverRoom: '/bg/server_room.png',
-  meeting: '/bg/blue_rest.png', pantry: '/bg/pantry.png', restroom: '/bg/restroom.png', hr: '/bg/meeting_room.png',
-  release: '/bg/submit.png', bossOffice: '/bg/staff_room.png',
+  devDesk: '/bg/open_office.png', designDesk: '/bg/open_office.png', qa: '/bg/open_office.png', serverRoom: '/bg/endpoint_d.png',
+  meeting: '/bg/blue_rest.png', pantry: '/bg/sponsor.png', restroom: '/bg/restroom.png', hr: '/bg/meeting_room.png',
+  release: '/bg/submit.png', bossOffice: '/bg/workshop.png',
 };
 const bgCache: Record<string, HTMLImageElement> = {};
 function bgImage(zoneId: string): HTMLImageElement | null {
@@ -66,6 +66,7 @@ export function OfficeCanvas({
   bubbles,
   bossBubble,
   scapegoatId,
+  ownIds,
   height = 640,
 }: {
   frame: ReplayFrame | null;
@@ -75,11 +76,16 @@ export function OfficeCanvas({
   bubbles?: Record<string, string>;
   bossBubble?: string;
   scapegoatId?: string;
+  ownIds?: Set<string>;
   height?: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
   const t = useT();
   const [, setBgTick] = useState(0);
+  // 浮动提示：检测相邻帧的灵感/精力提升 → 头顶飘 "+灵感/+精力"
+  const prevStatsRef = useRef<Record<string, { e: number; i: number }>>({});
+  const floatsRef = useRef<Array<{ id: number; x: number; y: number; text: string; color: string; born: number }>>([]);
+  const floatIdRef = useRef(0);
   useEffect(() => {
     Object.values(BG_SRC).forEach((src) => {
       let im = bgCache[src];
@@ -164,6 +170,23 @@ export function OfficeCanvas({
 
     if (!frame) return;
 
+    // 检测本帧的灵感/精力提升，生成头顶浮动提示
+    const prevStats = prevStatsRef.current;
+    const nextStats: Record<string, { e: number; i: number }> = {};
+    for (const w of frame.workers) {
+      if (w.label === 'staff' || w.label === 'dq') continue;
+      const insp = (w as any).inspiration || 0;
+      const pr = prevStats[w.id];
+      if (pr) {
+        const di = insp - pr.i, de = w.energy - pr.e;
+        if (di >= 2) floatsRef.current.push({ id: ++floatIdRef.current, x: w.pos[0], y: w.pos[1], text: '+\u7075\u611f ' + Math.round(di), color: '#A36ECE', born: frame.tick });
+        else if (de >= 3) floatsRef.current.push({ id: ++floatIdRef.current, x: w.pos[0], y: w.pos[1], text: '+\u7cbe\u529b ' + Math.round(de), color: '#E8BE49', born: frame.tick });
+      }
+      nextStats[w.id] = { e: w.energy, i: insp };
+    }
+    prevStatsRef.current = nextStats;
+    floatsRef.current = floatsRef.current.filter((f) => frame.tick - f.born >= 0 && frame.tick - f.born <= 6);
+
     // Bug（代码渲染的道具精灵，画在机房）
     const server = ZONES.find((z) => z.id === 'serverRoom')!;
     frame.bugs.filter((b) => b.status !== 'resolved').forEach((b, i) => {
@@ -175,7 +198,32 @@ export function OfficeCanvas({
       if (b.severity >= 4 && b.status === 'exploded') { ctx.strokeStyle = '#e85838'; ctx.lineWidth = 3; ctx.strokeRect(bx - 2, by - 2, sz + 4, sz + 4); }
     });
 
-    // 角色渲染（不再画蓝/红/黄圈）：工作人员靠近时才可见（迷雾）
+    // 展位刷新道具：在赞助商展台上显示道具（Qoder额度/开发板/机器人/3D打印），每 ~8s 刷新高亮一个
+    const pantryRect = ZONES.find((z) => z.id === 'pantry')?.rect;
+    if (pantryRect) {
+      const [zx, zy] = pantryRect;
+      const emojis = ['⚡', '🔌', '🤖', '🖨️'];
+      const fresh = Math.floor(frame.tick / 40) % emojis.length;
+      ctx.textAlign = 'center';
+      emojis.forEach((emo, k) => {
+        const gx = (zx + 0.6 + k) * ts, gy = (zy + 1.15) * ts, s = ts * 0.8;
+        if (k === fresh) { ctx.fillStyle = 'rgba(245,197,66,0.4)'; ctx.beginPath(); ctx.arc(gx + s / 2, gy + s / 2, s * 0.72, 0, Math.PI * 2); ctx.fill(); }
+        ctx.fillStyle = 'rgba(10,11,15,0.6)'; ctx.fillRect(gx, gy, s, s);
+        ctx.font = '16px "DotGothic16", monospace'; ctx.fillText(emo, gx + s / 2, gy + s * 0.72);
+      });
+      ctx.textAlign = 'left';
+    }
+
+    // 热点覆盖范围（工作人员只知“这一带有热点”，不知道具体是谁）：开热点处一圈信号
+    for (const w of frame.workers) {
+      if (w.label !== 'building' && w.label !== 'hotspot') continue;
+      const cx = w.pos[0] * ts + ts / 2, cy = w.pos[1] * ts + ts / 2, rr = ts * 2.2;
+      const g = ctx.createRadialGradient(cx, cy, ts * 0.3, cx, cy, rr);
+      g.addColorStop(0, 'rgba(245,197,66,0.26)'); g.addColorStop(1, 'rgba(245,197,66,0)');
+      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.fill();
+    }
+
+    // 角色渲染（工作人员靠近时才可见）
     const roleFor = (w: { id: string; label: string }) => roles[w.id] || (w.label === 'staff' ? 'boss' : ROLE_POOL[hashId(w.id) % 6]);
     const builderPts = frame.workers.filter((w) => w.label !== 'staff' && w.label !== 'dq').map((w) => w.pos);
     const STAFF_FOG = 4; // 工作人员与选手曼哈顿距离 ≤ 4 时才显示位置
@@ -186,7 +234,7 @@ export function OfficeCanvas({
       if (isStaff && !staffVisible(w.pos)) continue; // 迷雾：远处的工作人员隐藏
       const px = w.pos[0] * ts, py = w.pos[1] * ts;
       const dq = w.label === 'dq';
-      const sprite = characterCanvas(roleFor(w), isStaff ? undefined : specs?.[w.id]);
+      const sprite = characterCanvas(roleFor(w), specs?.[w.id]); // 工作人员若有志愿者 spec 也生效（志愿者到场执勤）
       ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(px + 3, py + ts - 3, ts - 6, 3);
       const sw = isStaff ? ts * 1.3 : ts * 1.15, sh = isStaff ? ts * 1.6 : ts * 1.4;
       if (dq) ctx.globalAlpha = 0.45;
@@ -212,14 +260,34 @@ export function OfficeCanvas({
           ctx.fillStyle = r[1]; ctx.fillRect(bx, yy, Math.max(0, Math.min(1, r[0] / 100)) * bw, 2);
         });
         if (scapegoatId === w.id) { ctx.font = '16px "DotGothic16", monospace'; ctx.fillText('🎯', px - 4, py + ts * 0.1); }
+        // 开热点标识（观众可见）
+        if (w.label === 'building' || w.label === 'hotspot') { ctx.font = 'bold 13px "DotGothic16", monospace'; ctx.textAlign = 'center'; ctx.fillText('📶', px + ts / 2, py - 30); ctx.textAlign = 'left'; }
+        // 圈出自己的角色
+        if (ownIds && ownIds.has(w.id)) {
+          ctx.strokeStyle = '#68B35D'; ctx.lineWidth = 2.5;
+          ctx.beginPath(); ctx.ellipse(px + ts / 2, py + ts * 0.9, ts * 0.52, ts * 0.24, 0, 0, Math.PI * 2); ctx.stroke();
+          ctx.fillStyle = '#68B35D'; ctx.font = 'bold 10px "DotGothic16", monospace'; ctx.textAlign = 'center'; ctx.fillText('YOU', px + ts / 2, py + ts * 1.2); ctx.textAlign = 'left';
+        }
       }
       const text = bubbles?.[w.id];
       if (text) bubbleQueue.push({ cx: px + ts / 2, baseY: py - ts * 0.5, text, boss: isStaff });
     }
 
+    // 浮动提示（+灵感/+精力）：随时间上升淡出
+    ctx.textAlign = 'center';
+    for (const f of floatsRef.current) {
+      const age = frame.tick - f.born;
+      const fx = f.x * ts + ts / 2, fy = f.y * ts - 8 - age * 4;
+      ctx.globalAlpha = Math.max(0, 1 - age / 6);
+      ctx.font = 'bold 12px "DotGothic16", monospace';
+      ctx.fillStyle = '#0a0b0f'; ctx.fillText(f.text, fx + 1, fy + 1);
+      ctx.fillStyle = f.color; ctx.fillText(f.text, fx, fy);
+    }
+    ctx.globalAlpha = 1; ctx.textAlign = 'left';
+
     // 统一绘制气泡（浮在最上层）
     for (const b of bubbleQueue) drawBubble(b.cx, b.baseY, b.text, b.boss);
-  }, [frame, roles, names, specs, bubbles, bossBubble, scapegoatId, t, setBgTick]);
+  }, [frame, roles, names, specs, bubbles, bossBubble, scapegoatId, ownIds, t, setBgTick]);
 
   return <canvas ref={ref} className="office-stage" width={MAP_WIDTH * 48} height={height} style={{ aspectRatio: `${MAP_WIDTH * 48} / ${height}` }} />;
 }

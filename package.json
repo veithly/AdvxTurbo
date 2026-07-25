@@ -16,8 +16,8 @@
     "seed": "npm run seed -w @blame/server",
     "test:engine": "npm run test -w @blame/engine",
     "sfx": "node scripts/generate-sfx.mjs",
-    "chain:node": "npm run node -w @blame/contracts",
-    "chain:deploy": "npm run deploy:local -w @blame/contracts",
+    "chain:deploy": "cd apps/server && node --env-file=../../.env scripts/deploy-chain.mjs",
+    "chain:verify": "cd apps/server && node --env-file=../../.env scripts/finalize-chain.mjs",
     "e2e": "playwright test",
     "e2e:install": "playwright install chromium"
   },

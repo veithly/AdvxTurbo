@@ -5,6 +5,7 @@ import * as strategies from './services/strategies.js';
 import * as matches from './services/matches.js';
 import * as tournaments from './services/tournaments.js';
 import * as chain from './chain/gateway.js';
+import { normalizeProviderId } from '@blame/shared';
 
 // PRD 23 Agent REST API —— Authorization: Bearer <worker_key>
 export const agentApi = Router();
@@ -69,10 +70,17 @@ agentApi.post('/agent/worker/compare', agentAuth('strategy:simulate'), (req: Age
 });
 
 // POST /agent/worker/versions — 创建版本 (PRD 23.5)
+// Agent 在此自报家门：body.agentTool（或 model.provider）声明自己是什么 Agent，
+// 归一化后既记在版本上，也回写到 worker.agent_tool（排行榜/回放徽标据此展示），
+// 无需人类在建号时手动选择。
 agentApi.post('/agent/worker/versions', agentAuth('strategy:publish'), (req: AgentReq, res) => {
-  const { sourceCode, parentVersionId, submittedBy, model, changeNotes, riskNotes } = req.body || {};
+  const { sourceCode, parentVersionId, submittedBy, agentTool, model, changeNotes, riskNotes } = req.body || {};
   if (!sourceCode) return res.status(400).json({ code: 'MISSING_SOURCE' });
+  const declared = agentTool || model?.provider;
   const out = strategies.createVersion(req.worker.id, sourceCode, { parentVersionId, submittedBy: submittedBy || 'agent', modelProvider: model?.provider, modelName: model?.name, changeNotes, riskNotes });
+  if (declared) {
+    try { workers.updateWorker(req.worker.id, { agent_tool: normalizeProviderId(declared) }); } catch {}
+  }
   if (!out.staticCheck.ok) return res.status(422).json({ code: 'STATIC_CHECK_FAILED', errors: out.staticCheck.errors, version: out.version });
   res.json(out);
 });

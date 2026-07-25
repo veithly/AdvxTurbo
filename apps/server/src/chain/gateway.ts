@@ -1,6 +1,15 @@
 import { ethers } from 'ethers';
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { db, now } from '../db.js';
 import { id } from '../util.js';
+
+const __chainDir = path.dirname(fileURLToPath(import.meta.url));
+// 已部署的真实合约（apps/server/chain-deploy.json，由 scripts/deploy-chain.mjs 生成）
+export function loadDeployedChain(): any | null {
+  try { return JSON.parse(fs.readFileSync(path.join(__chainDir, '../../chain-deploy.json'), 'utf8')); } catch { return null; }
+}
 
 // PRD 26/29/34：Injective EVM 集成 (Testnet 1439 / Mainnet 1776)
 // 无 RPC/密钥时进入 mock 模式：把承诺、批次、奖金托管记录在本地账本，
@@ -67,7 +76,7 @@ let wallet: ethers.Wallet | null = null;
 export let CHAIN_MODE: 'live' | 'mock' = 'mock';
 
 export function initChain() {
-  const pk = process.env.RELAYER_PRIVATE_KEY;
+  const pk = process.env.RELAYER_PRIVATE_KEY || process.env.PRIVATE_KEY;
   if (pk && ACTIVE.rpc) {
     try {
       provider = new ethers.JsonRpcProvider(ACTIVE.rpc, ACTIVE.chainId);
@@ -87,6 +96,7 @@ function mockTx(seed: string): string {
 }
 
 export function chainInfo() {
+  const dep = loadDeployedChain();
   return {
     mode: CHAIN_MODE,
     network: ACTIVE.key,
@@ -94,7 +104,9 @@ export function chainInfo() {
     name: ACTIVE.name,
     explorer: ACTIVE.explorer,
     rpc: ACTIVE.rpc,
+    deployed: dep ? { contract: 'BlameAnchor', address: dep.address, deployTx: dep.deployTx, anchorTx: dep.anchorTx, matchCount: dep.matchCount, deployer: dep.deployer } : null,
     contracts: {
+      BlameAnchor: dep?.address || process.env.ADDR_ANCHOR || null,
       AgentPassport: process.env.ADDR_PASSPORT || '0xPassport000000000000000000000000000000000',
       StrategyRegistry: process.env.ADDR_STRATEGY || '0xStrategy000000000000000000000000000000000',
       MatchRootRegistry: process.env.ADDR_MATCHROOT || '0xMatchRoot00000000000000000000000000000000',
@@ -253,4 +265,87 @@ function mockBlock(): number {
 
 export function recentChainEvents(limit = 50) {
   return db.prepare('SELECT * FROM chain_events ORDER BY id DESC LIMIT ?').all(limit) as any[];
+}
+
+// ============================================================================
+// 真实链上操作（live 模式）：AdvxRegistry (ERC-8004 身份/装饰品 NFT) + BlameAnchor 锚定 + INJ 奖励
+// 策略：交易发出即返回 txHash（不等 receipt，避免慢 RPC 挂起）；串行发送避免 nonce 冲突。
+// ============================================================================
+
+export function loadRegistry(): any | null {
+  try { return JSON.parse(fs.readFileSync(path.join(__chainDir, '../../chain-registry.json'), 'utf8')); } catch { return null; }
+}
+
+let txQueue: Promise<unknown> = Promise.resolve();
+function enqueueTx<T>(fn: () => Promise<T>): Promise<T> {
+  const p = txQueue.then(fn, fn);
+  txQueue = p.catch(() => {});
+  return p;
+}
+
+// 慢 RPC 保护：发交易超过 timeoutMs 直接报错返回，避免前端请求挂死“点了没反应”
+function withTimeout<T>(p: Promise<T>, timeoutMs = 20_000): Promise<T> {
+  return Promise.race([
+    p,
+    new Promise<never>((_, rej) => setTimeout(() => rej(new Error('TX_TIMEOUT: RPC 响应超时，请稍后重试')), timeoutMs)),
+  ]);
+}
+
+async function sendContractTx(address: string, abi: any[], method: string, args: any[]): Promise<{ txHash: string; mode: string } | { error: string }> {
+  if (CHAIN_MODE !== 'live' || !wallet) return { txHash: mockTx(method), mode: 'mock' };
+  try {
+    return await withTimeout(enqueueTx(async () => {
+      const c = new ethers.Contract(address, abi, wallet!);
+      const tx = await c[method](...args); // 发出即返回，不等 receipt
+      return { txHash: tx.hash, mode: 'live' };
+    }));
+  } catch (e: any) {
+    return { error: (e?.shortMessage || e?.message || String(e)).slice(0, 200) };
+  }
+}
+
+/** ERC-8004 风格：把选手身份注册成 NFT，mint 到玩家自己的钱包 */
+export async function registerAgentOnChain(agentOwner: string, workerId: string, uri: string) {
+  const reg = loadRegistry();
+  if (!reg) return { error: 'REGISTRY_NOT_DEPLOYED' };
+  const r = await sendContractTx(reg.address, reg.abi, 'registerAgent', [agentOwner, workerHash(workerId), uri]);
+  if ('txHash' in r) recordEvent('AgentRegistered8004', { workerId, agentOwner, uri, registry: reg.address }, r.txHash);
+  return { ...r, registry: reg.address, explorer: 'txHash' in r ? `${ACTIVE.explorer}/tx/${r.txHash}` : undefined };
+}
+
+/** 商店装饰品：mint 真 NFT 到玩家钱包 */
+export async function mintItemOnChain(to: string, uri: string) {
+  const reg = loadRegistry();
+  if (!reg) return { error: 'REGISTRY_NOT_DEPLOYED' };
+  const r = await sendContractTx(reg.address, reg.abi, 'mintItem', [to, uri]);
+  if ('txHash' in r) recordEvent('ItemMintedOnChain', { to, uri, registry: reg.address }, r.txHash);
+  return { ...r, registry: reg.address, explorer: 'txHash' in r ? `${ACTIVE.explorer}/tx/${r.txHash}` : undefined };
+}
+
+/** 比赛结果真实锚链（BlameAnchor.anchorMatch），限频省 gas */
+let lastAnchorAt = 0;
+export async function anchorMatchOnChain(rootHex: string) {
+  const dep = loadDeployedChain();
+  if (!dep) return { error: 'ANCHOR_NOT_DEPLOYED' };
+  const now = Date.now();
+  if (now - lastAnchorAt < 60_000) return { skipped: 'rate_limited' };
+  lastAnchorAt = now;
+  const root = rootHex.startsWith('0x') ? rootHex : '0x' + rootHex;
+  const r = await sendContractTx(dep.address, dep.abi, 'anchorMatch', [root.slice(0, 66).padEnd(66, '0')]);
+  if ('txHash' in r) recordEvent('MatchAnchoredOnChain', { root }, r.txHash);
+  return r;
+}
+
+/** INJ 奖励发放（小额，直接转到玩家钱包） */
+export async function sendInjReward(to: string, amountInj: string) {
+  if (CHAIN_MODE !== 'live' || !wallet) return { txHash: mockTx('reward:' + to), mode: 'mock' };
+  try {
+    return await withTimeout(enqueueTx(async () => {
+      const tx = await wallet!.sendTransaction({ to, value: ethers.parseEther(amountInj) });
+      recordEvent('InjRewardSent', { to, amountInj }, tx.hash);
+      return { txHash: tx.hash, mode: 'live', explorer: `${ACTIVE.explorer}/tx/${tx.hash}` };
+    }));
+  } catch (e: any) {
+    return { error: (e?.shortMessage || e?.message || String(e)).slice(0, 200) };
+  }
 }

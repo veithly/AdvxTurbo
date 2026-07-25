@@ -5,6 +5,10 @@ import { decide, advanceAction, spawnBug } from './actions.js';
 import { bossLookingAt, computePublishReady } from './context.js';
 import { nextStep, manhattan, bossSees } from './pathfind.js';
 import { settle } from './audit.js';
+import {
+  WORKSTATION_ZONES, REST_ZONE, CANTEEN_ZONE, HOTEL_ZONE, WORKSHOP_ZONE, SPONSOR_ZONE,
+  REST_SLOTS, CANTEEN_WAIT_TICKS, HOTEL_SERVE_TICKS, HOTEL_COOLDOWN_TICKS, SPONSOR_CD_TICKS, SPONSOR_QODER_TICKS,
+} from './venue.js';
 
 function clamp(v: number, lo: number, hi: number) {
   return Math.max(lo, Math.min(hi, v));
@@ -14,18 +18,8 @@ function log(state: MatchState, kind: string, extra: Record<string, unknown> = {
   state.timeline.push({ tick: state.tick, kind, ...extra });
 }
 
-// —— 抓热点：只有在「工位区」开热点才能推进项目进度 ——
-const WORKSTATION_ZONES = new Set(['devDesk', 'designDesk', 'qa', 'serverRoom']);
-// —— 服务区（由旧的 主舞台/签到台/提交台 改造）——
-const REST_ZONE = 'meeting';       // 蓝盒子休息区：回部分精力，最多 3 个位置
-const CANTEEN_ZONE = 'hr';         // 食堂：等 5s 加灵感+精力
-const HOTEL_ZONE = 'release';      // 酒店排队区：一个一个排，补满精力，30s 冷却
-const REST_SLOTS = 3;
-const CANTEEN_WAIT_TICKS = 25;     // 5s @5Hz
-const HOTEL_SERVE_TICKS = 15;      // 3s @5Hz
-const HOTEL_COOLDOWN_TICKS = 150;  // 30s @5Hz
 const DQ_EXIT_TICKS = 12; // escort-out frames after DQ, then removed from the floor
-const MAX_DQ = 6; // 一局最多取消资格人数（戴戯剧但不全灭）
+// 取消资格人数无上限：工作人员抓到多少就取消多少
 
 // 帧标签（驱动前端渲染/解说/气泡）
 function hotspotLabel(state: MatchState, w: EngineWorker): string {
@@ -35,6 +29,8 @@ function hotspotLabel(state: MatchState, w: EngineWorker): string {
   if (w.zone === HOTEL_ZONE) return 'queuing';
   if (w.zone === CANTEEN_ZONE) return 'eating';
   if (w.zone === REST_ZONE) return 'resting';
+  if (w.zone === WORKSHOP_ZONE) return 'workshop';
+  if (w.zone === SPONSOR_ZONE) return 'sponsor';
   const l = w.currentAction?.label;
   if (l === 'moving') return 'moving';
   if (l === 'coffee') return 'resting';
@@ -103,9 +99,9 @@ function applyHotspotDynamics(state: MatchState) {
     else if (qoder) rate = 0.6;
     w.visibleContribution += rate;
     w.verifiedContribution += rate;
-    state.releaseProgress = clamp(state.releaseProgress + rate * 0.5, 0, 200);
-    if (w.hotspotOn) { w.buildTicks++; w.signal = clamp(w.signal + 3, 0, 100); w.energy = clamp(w.energy - 0.6, 0, 100); } // build 明显消耗精力
-    else { w.signal = clamp(w.signal - 2, 0, 100); w.energy = clamp(w.energy + 0.15, 0, 100); }
+    state.releaseProgress = clamp(state.releaseProgress + rate * 0.5, 0, 1e9);
+    if (w.hotspotOn) { w.buildTicks++; w.signal = clamp(w.signal + 3, 0, 100); w.energy = clamp(w.energy - 1.0, 0, 100); } // build 快速消耗精力
+    else { w.signal = clamp(w.signal - 2, 0, 100); w.energy = clamp(w.energy + 0.08, 0, 100); }
     w.suspicion = w.signal;
   }
   resolveOverlaps(state);
@@ -116,9 +112,11 @@ const FILLER_HOMES = ['devDesk', 'designDesk', 'qa', 'serverRoom'];
 function moveFiller(state: MatchState, w: EngineWorker) {
   // 根据精力/灵感自然地去使用各服务区（让新区域有人气），否则回端点 build
   let home: string;
-  if (w.energy < 16 && state.tick >= w.hotelCooldownUntil) home = HOTEL_ZONE;   // 太累→酒店补满
-  else if (w.energy < 38) home = REST_ZONE;                                     // 累→蓝盒子休息
-  else if (w.seat % 6 === 0 && w.inspiration < 45) home = CANTEEN_ZONE;          // 偶尔→食堂加灵感
+  if (w.energy < 22 && state.tick >= w.hotelCooldownUntil) home = HOTEL_ZONE;    // 太累→酒店补满
+  else if (w.energy < 45) home = REST_ZONE;                                      // 累→蓝盒子休息
+  else if (w.seat % 5 === 0 && w.inspiration < 55) home = WORKSHOP_ZONE;          // 去工作坊加灵感
+  else if (w.seat % 4 === 1 && w.inspiration < 45) home = CANTEEN_ZONE;           // 去食堂加灵感+精力
+  else if (w.seat % 7 === 3 && state.tick >= w.sponsorCdUntil) home = SPONSOR_ZONE; // 去展商拿提速buff
   else home = FILLER_HOMES[w.seat % FILLER_HOMES.length];
   const spot = ZONE_BY_ID[home]?.spot;
   if (!spot) return;
@@ -133,19 +131,29 @@ function applyZoneServices(state: MatchState) {
   for (const w of state.workers) {
     if (w.disqualified || state.tick < w.bustedUntilTick) { w.canteenWait = 0; continue; }
     if (w.zone === REST_ZONE) {
-      if (restUsed < REST_SLOTS) { w.energy = clamp(w.energy + 1.4, 0, 100); restUsed++; }
+      if (restUsed < REST_SLOTS) { w.energy = clamp(w.energy + 1.6, 0, 100); restUsed++; }
       w.canteenWait = 0;
     } else if (w.zone === CANTEEN_ZONE) {
       w.canteenWait++;
-      if (w.canteenWait >= CANTEEN_WAIT_TICKS) { w.inspiration = clamp(w.inspiration + 10, 0, 100); w.energy = clamp(w.energy + 15, 0, 100); w.canteenWait = 0; }
+      if (w.canteenWait >= CANTEEN_WAIT_TICKS) { w.inspiration = clamp(w.inspiration + 10, 0, 1e9); w.energy = clamp(w.energy + 15, 0, 100); w.canteenWait = 0; }
+    } else if (w.zone === WORKSHOP_ZONE) {
+      w.inspiration = clamp(w.inspiration + 0.6, 0, 1e9); // 工作坊：持续加灵感
+      w.canteenWait = 0;
+    } else if (w.zone === SPONSOR_ZONE) {
+      w.canteenWait = 0;
+      if (state.tick >= w.sponsorCdUntil) { // 展商发道具：提速buff + 灵感
+        w.qoderUntilTick = state.tick + SPONSOR_QODER_TICKS;
+        w.inspiration = clamp(w.inspiration + 6, 0, 1e9);
+        w.sponsorCdUntil = state.tick + SPONSOR_CD_TICKS;
+      }
     } else {
       w.canteenWait = 0;
     }
     // 灵感：跟其他选手 social（靠近 ≤2）或多溜达
     let near = 0;
     for (const o of state.workers) { if (o.id !== w.id && !o.disqualified && manhattan(o.position, w.position) <= 2) { if (++near >= 3) break; } }
-    if (near > 0) w.inspiration = clamp(w.inspiration + 0.12 * near, 0, 100);
-    if (w.currentAction?.label === 'moving') w.inspiration = clamp(w.inspiration + 0.08, 0, 100);
+    if (near > 0) w.inspiration = clamp(w.inspiration + 0.12 * near, 0, 1e9);
+    if (w.currentAction?.label === 'moving') w.inspiration = clamp(w.inspiration + 0.08, 0, 1e9);
   }
   applyHotel(state);
 }
@@ -178,10 +186,17 @@ function disqualify(state: MatchState, w: EngineWorker) {  w.disqualified = true
   log(state, 'disqualified', { workerId: w.id });
 }
 
-/** 5 名工作人员在场内巡逻排查（各走不同路线）：只有走到与选手同一格(重合)且对方正开热点才捕捉→取消参赛资格 */
+/** 工作人员只在「端点」巡逻：只感知“哪个端点附近有热点”（不知道具体是谁），走到重合且对方开热点才捕捉→取消资格 */
 function updateStaff(state: MatchState) {
-  for (const s of state.staff) {
-    const goalZone = BOSS_PATROL[s.routeIdx % BOSS_PATROL.length];
+  // 各端点当前开热点人数（工作人员只感知区域热度，不知道具体选手）
+  const hot: Record<string, number> = {};
+  for (const e of FILLER_HOMES) hot[e] = 0;
+  for (const w of state.workers) { if (!w.disqualified && w.hotspotOn && hot[w.zone] !== undefined) hot[w.zone]++; }
+  const ranked = [...FILLER_HOMES].sort((a, b) => (hot[b] - hot[a]) || FILLER_HOMES.indexOf(a) - FILLER_HOMES.indexOf(b));
+  const anyHot = hot[ranked[0]] > 0;
+  state.staff.forEach((s, i) => {
+    // 有热点→按热度错开分派去查；无热点→各自循环巡逻 4 端点
+    const goalZone = anyHot ? ranked[i % ranked.length] : FILLER_HOMES[(s.routeIdx + i) % FILLER_HOMES.length];
     const spot = ZONE_BY_ID[goalZone]?.spot;
     if (spot) {
       if (manhattan(s.position, spot) === 0) {
@@ -191,17 +206,16 @@ function updateStaff(state: MatchState) {
         if (nx) { s.facing = [nx[0] - s.position[0], nx[1] - s.position[1]] as [number, number]; if (s.facing[0] === 0 && s.facing[1] === 0) s.facing = [-1, 0]; s.position = nx; s.zone = zoneAt(nx[0], nx[1]); }
       }
     }
-    // 重合排查：站到正在开热点的选手头上 → 当场取消资格（一局最多拓 MAX_DQ 人，避免全灭）
+    // 重合排查：站到正在开热点的选手头上 → 当场取消资格（一局最多 MAX_DQ 人）
     for (const w of state.workers) {
       if (w.disqualified) continue;
       if (w.position[0] === s.position[0] && w.position[1] === s.position[1] && w.hotspotOn) {
-        const dqCount = state.workers.reduce((n, x) => n + (x.disqualified ? 1 : 0), 0);
-        if (dqCount < MAX_DQ) disqualify(state, w);
+        disqualify(state, w); // 抓人无上限：重合且开热点即当场取消资格
         break;
       }
     }
     s.targetId = undefined;
-  }
+  });
   // 让 context/sandbox 的 boss 视图跟随 staff[0]
   if (state.staff[0]) { state.boss.position = [state.staff[0].position[0], state.staff[0].position[1]]; state.boss.facing = state.staff[0].facing; }
 }
@@ -311,7 +325,7 @@ function maybeDrawEvent(state: MatchState) {
     if (codeTasks.length) { const v = codeTasks[state.worldRng.int(0, codeTasks.length - 1)]; v.workTicksDone = Math.floor((v.workTicksDone || 0) * 0.6); }
   } else if (card.effect === 'revertDesign') {
     const design = state.tasks.filter((x) => x.type === 'design' && x.status === 'done');
-    if (design.length) { const v = design[state.worldRng.int(0, design.length - 1)]; v.status = 'working'; v.workTicksDone = Math.floor((v.workTicksNeeded || 15) * 0.5); state.releaseProgress = clamp(state.releaseProgress - v.progressReward * 0.5, 0, 200); }
+    if (design.length) { const v = design[state.worldRng.int(0, design.length - 1)]; v.status = 'working'; v.workTicksDone = Math.floor((v.workTicksNeeded || 15) * 0.5); state.releaseProgress = clamp(state.releaseProgress - v.progressReward * 0.5, 0, 1e9); }
   }
 }
 
@@ -380,7 +394,7 @@ function applyBugDynamics(state: MatchState) {
   for (const bug of state.bugs) {
     if (bug.status === 'resolved' || bug.status === 'exploded') continue;
     state.stability = clamp(state.stability - bug.stabilityDrainPerTick, 0, 100);
-    if (bug.progressDrainPerTick) state.releaseProgress = clamp(state.releaseProgress - bug.progressDrainPerTick, 0, 200);
+    if (bug.progressDrainPerTick) state.releaseProgress = clamp(state.releaseProgress - bug.progressDrainPerTick, 0, 1e9);
     // 忽略告警：Bug 可见且严重但无人处理，向当前 owner 记一次忽略
     if (!bug.hidden && bug.severity >= 3 && state.tick % 20 === 0 && bug.currentOwnerId) {
       const owner = state.workers.find((w) => w.id === bug.currentOwnerId);

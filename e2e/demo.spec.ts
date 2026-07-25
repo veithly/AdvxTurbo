@@ -6,9 +6,14 @@ test('完整核心循环 UI 演示 (录制视频)', async ({ page }) => {
   const errors: string[] = [];
   page.on('console', (m) => { if (m.type() === 'error') errors.push(m.text()); });
 
+  // 登录改为 API 注入 token（UI 登录现在只有 RainbowKit 钱包签名，无法在无头浏览器里走）
+  const lr = await page.request.post('http://localhost:4000/api/auth/login', { data: { email: 'player1@blame.game', password: 'test1234' } });
+  const { token } = await lr.json();
+  await page.addInitScript((t) => localStorage.setItem('token', t as string), token);
+
   // 1. Home
   await page.goto('/');
-  await expect(page.locator('h1')).toContainText(/抢热点|CATCH THE HOTSPOT/);
+  await expect(page.locator('h1')).toContainText(/Advx|ADVX/);
   await expect(page.locator('.incident-card').first()).toBeVisible();
   await page.waitForTimeout(600);
 
@@ -17,11 +22,9 @@ test('完整核心循环 UI 演示 (录制视频)', async ({ page }) => {
   await page.waitForTimeout(400);
   await page.getByRole('button', { name: /^EN$|^中$/ }).click();
 
-  // 3. 登录 (预填 player1)
-  await page.goto('/auth');
-  await page.getByRole('button', { name: /登录|Log in/ }).first().click();
-  await page.waitForURL(/\/office/, { timeout: 20000 });
-  await expect(page.getByText(/我的公司|My Company/)).toBeVisible();
+  // 3. 已通过 token 登录，直接进选手中心
+  await page.goto('/office');
+  await expect(page.getByText(/我的战队|My Squad/)).toBeVisible();
   await page.waitForTimeout(600);
 
   // 4. 开始排位 -> 比赛回放
@@ -56,15 +59,17 @@ test('完整核心循环 UI 演示 (录制视频)', async ({ page }) => {
   if (await faucet.count()) { await faucet.first().click(); await page.waitForTimeout(800); }
   await page.waitForTimeout(600);
 
-  // 7. 经济：质押 / 通证学
-  await goMenu(/经济|Economy/);
-  await page.waitForURL(/\/economy/);
-  await expect(page.getByText(/通证学|Tokenomics/).first()).toBeVisible();
+  // 7. 商店（装饰品 NFT）：经济/锺标赛页已从菜单精简移除
+  await goMenu(/商店|Store/);
+  await page.waitForURL(/\/store/);
+  await expect(page.getByText(/mint NFT/).first()).toBeVisible();
   await page.waitForTimeout(600);
 
   // 8. Agent Lab: Quick Sim
   await goMenu(/Agent Lab/);
   await page.waitForURL(/\/lab/);
+  // 默认落在「Agent 接入」页，先切到代码编辑
+  await page.getByRole('button', { name: /代码编辑|Code Editor/ }).click();
   await expect(page.locator('textarea')).toBeVisible();
   await page.getByRole('button', { name: /Quick Sim/ }).click();
   await expect(page.locator('table.tbl')).toBeVisible({ timeout: 20000 });

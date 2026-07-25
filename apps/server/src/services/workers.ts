@@ -35,7 +35,7 @@ export function listWorkersByUser(userId: string): any[] {
   return db.prepare('SELECT * FROM workers WHERE user_id = ? ORDER BY created_at').all(userId) as any[];
 }
 
-export function updateWorker(wid: string, fields: Partial<{ public_challenge_enabled: number; status: string; name: string }>) {
+export function updateWorker(wid: string, fields: Partial<{ public_challenge_enabled: number; status: string; name: string; agent_tool: string }>) {
   const sets: string[] = [];
   const vals: any[] = [];
   for (const [k, v] of Object.entries(fields)) { sets.push(`${k} = ?`); vals.push(v); }

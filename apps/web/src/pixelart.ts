@@ -65,31 +65,127 @@ class R {
 function px(r: R, x: number, y: number, w: number, h: number, fill: string) { r.ctx.fillStyle = fill; r.ctx.fillRect(x, y, w, h); }
 function box(r: R, x: number, y: number, w: number, h: number, fill: string) { px(r, x - 1, y - 1, w + 2, h + 2, P.o); px(r, x, y, w, h, fill); }
 
+// 简单明暗调色：给同一 fur 做深/浅变体（花纹/耳内/肚皮）
+function shade(hex: string, d: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || '');
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const f = (v: number) => Math.max(0, Math.min(255, v + d));
+  return '#' + [f(n >> 16), f((n >> 8) & 255), f(n & 255)].map((v) => v.toString(16).padStart(2, '0')).join('');
+}
+
+// ============================================================================
+// 角色绘制：7 个物种各有独立头型/脸/花纹/尾巴/身体细节，告别千猫一面；
+// 配饰 11 种：手持(laptop/clipboard/magnifier/wrench/coffee) + 背(backpack)
+//          + 胸前(tie) + 脸(glasses) + 头戴(headphones/hat/cap)
+// ============================================================================
 export function drawCharacter(r: R, c: CharSpec) {
-  const s = c.species, fur = c.fur, shirt = c.shirt, acc = c.accessory || 'laptop';
+  const s = c.species, fur = c.fur, shirt = c.shirt, acc = c.accessory || '';
+  const furD = shade(fur, -46), furL = shade(fur, 42);
+  // 地影
   px(r, 10, 42, 28, 3, '#00000055');
-  box(r, 15, 34, 7, 8, shirt); box(r, 27, 34, 7, 8, shirt); box(r, 12, 20, 25, 17, shirt);
-  if (s === 'cat' || s === 'shiba' || s === 'raccoon') {
-    px(r, 11, 7, 8, 8, P.o); px(r, 31, 7, 8, 8, P.o); box(r, 10, 10, 30, 17, fur);
+
+  // —— 尾巴（画在身体后面，左侧）——
+  if (s === 'cat') { r.line([10, 34, 4, 30, 3, 23, 6, 19], furD, 3); px(r, 5, 18, 3, 3, furD); }
+  else if (s === 'shiba') { r.ellipse(2, 24, 11, 33, fur, P.o); r.ellipse(5, 27, 9, 31, furL); }
+  else if (s === 'raccoon') { box(r, 3, 24, 7, 16, fur); px(r, 3, 27, 7, 3, P.dg); px(r, 3, 33, 7, 3, P.dg); }
+  else if (s === 'goose') { px(r, 5, 26, 7, 6, P.w); px(r, 4, 25, 4, 3, P.o); }
+  else if (s === 'hamster') { px(r, 8, 36, 4, 4, furL); }
+
+  // —— 腿 + 身体（衬衫）——
+  box(r, 15, 34, 7, 8, shirt); box(r, 27, 34, 7, 8, shirt);
+  if (s === 'capybara') box(r, 11, 20, 27, 17, shirt);       // 水豚：更宽的方身体
+  else if (s === 'hamster') { box(r, 13, 22, 23, 15, shirt); r.ellipse(17, 27, 31, 36, furL); } // 仓鼠：矮圆+圆肚皮
+  else if (s === 'goose') { box(r, 14, 22, 21, 15, P.w); px(r, 15, 24, 8, 11, shirt); }         // 鹅：白羽身+背心
+  else box(r, 12, 20, 25, 17, shirt);
+
+  // —— 头 + 物种特征 ——
+  if (s === 'cat') {
+    // 大三角尖耳+粉耳内，圆头，额头条纹，胡须
+    px(r, 10, 5, 9, 9, P.o); px(r, 12, 7, 5, 6, fur); px(r, 13, 8, 3, 4, '#E8A0B4');
+    px(r, 31, 5, 9, 9, P.o); px(r, 33, 7, 5, 6, fur); px(r, 34, 8, 3, 4, '#E8A0B4');
+    box(r, 10, 11, 30, 16, fur);
+    px(r, 20, 12, 3, 5, furD); px(r, 26, 12, 3, 5, furD); // 条纹
+    px(r, 16, 16, 4, 4, P.o); px(r, 30, 16, 4, 4, P.o);
+    px(r, 22, 21, 6, 4, P.c); px(r, 24, 21, 2, 2, '#E8A0B4'); // 吻+粉鼻
+    r.line([8, 21, 13, 20], P.o, 1); r.line([37, 20, 42, 21], P.o, 1); // 胡须
+  } else if (s === 'shiba') {
+    // 小三角耳，大块奶油色口鼻+眉点，笑唇
+    px(r, 12, 6, 7, 7, P.o); px(r, 14, 8, 4, 4, fur);
+    px(r, 31, 6, 7, 7, P.o); px(r, 33, 8, 4, 4, fur);
+    box(r, 10, 11, 30, 16, fur);
+    r.ellipse(17, 17, 33, 27, '#F4E3C0'); // 奶油吻
+    px(r, 15, 15, 4, 4, P.o); px(r, 31, 15, 4, 4, P.o);
+    px(r, 14, 12, 3, 2, '#F4E3C0'); px(r, 33, 12, 3, 2, '#F4E3C0'); // 眉点
+    px(r, 23, 19, 4, 3, P.o); r.line([21, 24, 25, 26, 29, 24], P.o, 1); // 鼻+笑
+  } else if (s === 'raccoon') {
+    // 小圆耳，黑眼罩，灰白吻
+    r.ellipse(11, 5, 18, 12, fur, P.o); r.ellipse(31, 5, 38, 12, fur, P.o);
+    box(r, 10, 11, 30, 16, fur);
+    px(r, 12, 14, 11, 7, P.dg); px(r, 27, 14, 11, 7, P.dg); // 眼罩
+    px(r, 15, 16, 4, 4, P.w); px(r, 31, 16, 4, 4, P.w); px(r, 16, 17, 2, 2, P.o); px(r, 32, 17, 2, 2, P.o);
+    r.ellipse(20, 20, 30, 27, '#D8D3C8'); px(r, 24, 21, 3, 3, P.o); // 白吻+鼻
   } else if (s === 'goose') {
-    box(r, 16, 7, 17, 20, P.w); px(r, 8, 15, 11, 6, P.o); px(r, 9, 16, 10, 4, P.y);
+    // 小白头长脖子，橙扁嘴
+    box(r, 20, 3, 13, 12, P.w);                    // 小头
+    box(r, 22, 14, 9, 9, P.w);                     // 脖子
+    px(r, 9, 7, 12, 6, P.o); px(r, 10, 8, 11, 4, '#F0A030'); px(r, 10, 11, 9, 2, '#D88820'); // 扁嘴
+    px(r, 24, 6, 3, 3, P.o);                       // 单侧眼
+  } else if (s === 'capybara') {
+    // 方长平头，超小耳，大方鼻，佛系眨缝眼
+    px(r, 11, 7, 6, 5, P.o); px(r, 12, 8, 4, 3, furD);
+    px(r, 33, 7, 6, 5, P.o); px(r, 34, 8, 4, 3, furD);
+    box(r, 9, 10, 32, 18, fur);
+    px(r, 15, 17, 6, 2, P.o); px(r, 29, 17, 6, 2, P.o); // 眨缝眼（横线）
+    px(r, 20, 22, 10, 6, furD); px(r, 23, 23, 4, 3, P.o); // 大方吻+鼻
+  } else if (s === 'hamster') {
+    // 圆头圆脸，鼓腮帮+腮红，豆豆眼，门牙
+    r.ellipse(11, 6, 39, 28, fur, P.o);
+    r.ellipse(12, 3, 19, 10, fur, P.o); r.ellipse(31, 3, 38, 10, fur, P.o); // 小圆耳
+    r.ellipse(9, 17, 17, 25, furL); r.ellipse(33, 17, 41, 25, furL);       // 鼓腮帮
+    px(r, 12, 19, 4, 3, '#F0A0A8'); px(r, 34, 19, 4, 3, '#F0A0A8');        // 腮红
+    px(r, 19, 14, 3, 3, P.o); px(r, 28, 14, 3, 3, P.o);                    // 豆豆眼
+    px(r, 23, 19, 4, 3, '#E8A0B4'); px(r, 23, 22, 4, 4, P.w); px(r, 25, 22, 1, 4, P.o); // 鼻+门牙
   } else {
-    box(r, 9, 10, 31, 18, fur); px(r, 10, 8, 7, 6, P.o); px(r, 32, 8, 7, 6, P.o);
+    // bulldog：宽下颌肉腮，折耳下垂，皱眉，下犬牙
+    box(r, 9, 10, 32, 17, fur);
+    px(r, 8, 8, 8, 7, P.o); px(r, 9, 9, 6, 5, furD);   // 垂耳
+    px(r, 34, 8, 8, 7, P.o); px(r, 35, 9, 6, 5, furD);
+    r.ellipse(12, 18, 38, 29, shade(fur, 18));          // 宽肉腮
+    px(r, 15, 13, 6, 2, P.o); px(r, 29, 13, 6, 2, P.o); // 皱眉
+    px(r, 16, 15, 4, 3, P.o); px(r, 30, 15, 4, 3, P.o);
+    px(r, 22, 20, 6, 4, furD); px(r, 24, 20, 2, 2, P.o); // 吻
+    px(r, 18, 24, 2, 3, P.w); px(r, 30, 24, 2, 3, P.w);  // 下犬牙
   }
-  if (s !== 'goose') {
-    px(r, 16, 15, 4, 4, P.o); px(r, 30, 15, 4, 4, P.o); px(r, 22, 20, 6, 4, P.c); px(r, 24, 20, 2, 2, P.o);
-  } else {
-    px(r, 25, 13, 3, 3, P.o);
+
+  // —— 手臂 ——（鹅用白色翅膀）
+  const armCol = s === 'goose' ? P.w : shirt;
+  box(r, 6, 23, 7, 12, armCol); box(r, 37, 23, 7, 12, armCol);
+
+  // —— 脸部/头戴配饰 ——
+  if (acc === 'glasses') {
+    if (s === 'goose') { r.ellipse(22, 4, 29, 11, undefined, P.o, 2); }
+    else { r.ellipse(14, 14, 22, 21, undefined, P.o, 2); r.ellipse(28, 14, 36, 21, undefined, P.o, 2); r.line([22, 17, 28, 17], P.o, 2); }
+  } else if (acc === 'headphones') {
+    const hy = s === 'goose' ? 3 : s === 'hamster' ? 6 : 9;
+    r.line([12, hy + 4, 16, hy - 3, 25, hy - 5, 34, hy - 3, 38, hy + 4], P.dg, 3);
+    box(r, 9, hy + 3, 5, 8, P.dg); box(r, 36, hy + 3, 5, 8, P.dg); px(r, 10, hy + 5, 3, 4, P.cy); px(r, 37, hy + 5, 3, 4, P.cy);
+  } else if (acc === 'hat') {
+    const hy = s === 'goose' ? 2 : s === 'hamster' ? 4 : 7;
+    box(r, 16, hy - 6, 18, 7, P.dg); box(r, 11, hy, 28, 3, P.dg); px(r, 17, hy - 2, 16, 2, P.y); // 礼帽+帽带
+  } else if (acc === 'cap') {
+    const hy = s === 'goose' ? 2 : s === 'hamster' ? 4 : 7;
+    box(r, 13, hy - 4, 22, 6, P.b); box(r, 30, hy + 1, 14, 3, P.b); px(r, 22, hy - 3, 4, 4, P.w); // 棒球帽+前檐
   }
-  if (s === 'raccoon') { px(r, 13, 14, 10, 6, P.dg); px(r, 27, 14, 10, 6, P.dg); }
-  box(r, 6, 23, 7, 12, shirt); box(r, 37, 23, 7, 12, shirt);
+
+  // —— 手持/身上道具 ——
   if (acc === 'laptop') { box(r, 25, 27, 18, 11, P.dg); px(r, 32, 31, 5, 2, P.cy); }
-  else if (acc === 'clipboard') { box(r, 32, 22, 10, 15, P.c); px(r, 35, 20, 4, 3, P.o); }
+  else if (acc === 'clipboard') { box(r, 32, 22, 10, 15, P.c); px(r, 35, 20, 4, 3, P.o); px(r, 34, 26, 6, 1, '#7A828E'); px(r, 34, 30, 6, 1, '#7A828E'); }
   else if (acc === 'magnifier') { r.ellipse(31, 21, 39, 29, P.cy, P.o); r.line([38, 28, 43, 35], P.o, 2); }
   else if (acc === 'wrench') { r.line([33, 22, 40, 35], '#888', 3); px(r, 31, 20, 5, 4, P.o); }
-  else if (acc === 'coffee') { box(r, 32, 26, 9, 8, P.w); px(r, 41, 28, 3, 4, P.o); }
-  else if (acc === 'backpack') { box(r, 35, 22, 9, 15, P.b); }
-  else if (acc === 'tie') { px(r, 23, 22, 4, 11, P.r); }
+  else if (acc === 'coffee') { box(r, 32, 26, 9, 8, P.w); px(r, 41, 28, 3, 4, P.o); px(r, 33, 24, 2, 2, '#00000033'); px(r, 37, 23, 2, 3, '#00000033'); }
+  else if (acc === 'backpack') { box(r, 35, 22, 9, 15, P.b); px(r, 36, 24, 7, 2, P.y); px(r, 38, 28, 4, 5, shade('#3498DB', -40)); }
+  else if (acc === 'tie') { px(r, 23, 22, 4, 8, P.r); r.line([23, 30, 25, 34, 27, 30], P.r, 2); }
 }
 
 export function drawProp(r: R, n: string) {

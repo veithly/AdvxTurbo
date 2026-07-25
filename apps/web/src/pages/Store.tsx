@@ -1,5 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { useT } from '../i18n/index.js';
+import { api } from '../api.js';
 import { useToast } from '../ui.js';
 import { PixelSprite } from '../PixelSprite.js';
 import { sfx } from '../audio.js';
@@ -28,17 +29,41 @@ const ITEMS: Item[] = [
 export function Store() {
   const t = useT();
   const toast = useToast();
+  const [busy, setBusy] = useState('');
 
-  function buy() {
-    sfx('success');
-    toast.show('✔');
+  // 链上装饰品：购买即 mint 真 NFT 到你连接的钱包（AdvxRegistry）
+  async function buy(it: Item) {
+    sfx('click');
+    if (!it.onchain) { sfx('success'); toast.show('✔ ' + t(it.nameKey, it.nameEn)); return; }
+    setBusy(it.nameKey);
+    try {
+      const r: any = await api.post('/api/chain/store/mint', { item: it.prop, name: it.nameEn });
+      if (r.error) toast.show(r.error, 'err');
+      else { sfx('success'); toast.show('⛓ NFT 已 mint 到你的钱包 · ' + (r.txHash || '').slice(0, 12) + '…'); }
+    } catch (e: any) {
+      toast.show(e.data?.message || e.message, 'err');
+    } finally { setBusy(''); }
+  }
+
+  async function claimReward() {
+    sfx('click');
+    try {
+      const r: any = await api.post('/api/chain/reward/claim', {});
+      if (r.error) toast.show(r.error, 'err');
+      else { sfx('success'); toast.show('🎁 INJ 奖励已发到你的钱包 · ' + (r.txHash || '').slice(0, 12) + '…'); }
+    } catch (e: any) {
+      toast.show(e.data?.message || e.message, 'err');
+    }
   }
 
   return (
     <div className="content">
       <div className="row between">
         <h2 className="page-title">🛍 {t('store.title')}</h2>
-        <span className="tag yellow">☕ 480 {t('store.coffeePoints')}</span>
+        <div className="row">
+          <button className="btn sm green" onClick={claimReward}>🎁 领今日 INJ 奖励</button>
+          <span className="tag yellow">☕ 480 {t('store.coffeePoints')}</span>
+        </div>
       </div>
       <p className="page-sub muted">{t('store.desc')} · {t('store.cosmetic')} (code-rendered)</p>
 
@@ -52,7 +77,7 @@ export function Store() {
               <span className="tag">{it.transferable ? t('store.transferable') : t('store.notTransferable')}</span>
             </div>
             <div className="small muted">☕ {it.price} {t('store.coffeePoints')}</div>
-            <button className="btn sm primary block" onClick={buy}>{t('store.buy')}</button>
+            <button className="btn sm primary block" disabled={busy === it.nameKey} onClick={() => buy(it)}>{busy === it.nameKey ? '⛓…' : t('store.buy')}{it.onchain ? ' (mint NFT)' : ''}</button>
           </div>
         ))}
       </div>

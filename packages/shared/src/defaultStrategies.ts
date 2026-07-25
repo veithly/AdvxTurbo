@@ -88,9 +88,36 @@ function onIdle(me, coworkers, office) {
   return actions.moveTo({ zone: 'qa' });
 }`;
 
-export const DEFAULT_STRATEGY = STRATEGY_BALANCED;
+export const STRATEGY_HOTSPOT = `// v1.0 节奏大师：端点偷热点 build ⇄ 回精力 ⇄ 攒灵感，躲工作人员
+function onIdle(me, coworkers, office) {
+  var w = me.worker, v = office.venue;
+  // 1) 保命第一：工作人员距离≤2 且自己开着热点 → 撤到安全区（离开端点热点自动关）
+  var danger = office.staff.some(function (s) { return s.distanceToMe <= 2; });
+  if (danger && w.hotspotOn) return actions.moveTo({ zone: v.restroom, debugTag: 'flee-staff' });
+  // 2) 达标就提交：自动走到提交台（release）完成 ship
+  if (office.publishReady && office.timeLeftTicks <= 120) return actions.ship({ debugTag: 'submit' });
+  // 3) 精力循环：太累去酒店排队补满；累去蓝盒子小睡
+  if (w.energy < 22 && w.hotelCooldownTicks === 0) return actions.moveTo({ zone: v.hotel, debugTag: 'hotel-refill' });
+  if (w.energy < 40) return actions.moveTo({ zone: v.rest, debugTag: 'blue-box-nap' });
+  // 4) 灵感不够：展台白嫖 Qoder(冷却好了就领) / 否则 workshop⇄食堂
+  if (w.inspiration < 45) {
+    if (w.sponsorCooldownTicks === 0) return actions.moveTo({ zone: v.sponsor, debugTag: 'sponsor-swag' });
+    return actions.moveTo({ zone: (office.tick % 100) < 50 ? v.workshop : v.canteen, debugTag: 'inspiration' });
+  }
+  // 5) 挑热点最稀的端点去 build（站进端点且精力>8 会自动开热点）
+  var best = v.endpoints[0], heat = 1e9;
+  for (var i = 0; i < v.endpoints.length; i++) {
+    var h = office.endpointHeat[v.endpoints[i]] || 0;
+    if (h < heat) { heat = h; best = v.endpoints[i]; }
+  }
+  if (w.zone !== best) return actions.moveTo({ zone: best, debugTag: 'quiet-endpoint' });
+  return actions.idle({ debugTag: 'building' });
+}`;
+
+export const DEFAULT_STRATEGY = STRATEGY_HOTSPOT;
 
 export const STRATEGY_LIBRARY: Record<string, { nameKey: string; code: string }> = {
+  hotspot: { nameKey: 'strategy.hotspot', code: STRATEGY_HOTSPOT },
   balanced: { nameKey: 'strategy.balanced', code: STRATEGY_BALANCED },
   firefighter: { nameKey: 'strategy.firefighter', code: STRATEGY_FIREFIGHTER },
   grinder: { nameKey: 'strategy.grinder', code: STRATEGY_GRINDER },

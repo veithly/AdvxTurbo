@@ -60,9 +60,9 @@ api.get('/config', (_req, res) => {
 });
 
 // 自定义形象生成 (prompt -> 代码渲染 spec，前端用 8-bit 生成器绘制)
-api.post('/appearance/generate', requireUser, (req: AuthedReq, res) => {
+api.post('/appearance/generate', requireUser, async (req: AuthedReq, res) => {
   const { role, prompt } = req.body || {};
-  res.json(generateAppearance(req.user!.id + ':' + Date.now(), role || 'engineer', prompt));
+  res.json(await generateAppearance(req.user!.id + ':' + Date.now(), role || 'engineer', prompt));
 });
 
 api.get('/roles', (_req, res) => res.json(ALL_ROLES.map((r) => ROLES[r])));
@@ -89,6 +89,16 @@ api.post('/auth/login', (req, res) => {
 
 api.post('/auth/guest', (req, res) => res.json(accounts.guest(req.body?.locale || 'zh')));
 
+// RainbowKit 钱包签名登录（前端唯一登录方式）
+api.post('/auth/wallet', (req, res) => {
+  const { address, message, signature } = req.body || {};
+  try {
+    res.json(accounts.walletLogin(address, message, signature));
+  } catch (e: any) {
+    res.status(401).json({ code: e.message || 'BAD_SIGNATURE' });
+  }
+});
+
 api.get('/auth/me', requireUser, (req: AuthedReq, res) => {
   const wallet = accounts.walletFor(req.user!.id);
   res.json({ user: req.user, wallet });
@@ -110,7 +120,7 @@ api.post('/auth/wallet/link', requireUser, (req: AuthedReq, res) => {
 api.post('/workers', requireUser, (req: AuthedReq, res) => {
   const { name, role, appearance, personality, agentTool } = req.body || {};
   if (!name || !role) return res.status(400).json({ code: 'MISSING_FIELDS' });
-  const w = workers.createWorker(req.user!.id, name, role, appearance || {}, personality || '', agentTool || 'claude_code');
+  const w = workers.createWorker(req.user!.id, name, role, appearance || {}, personality || '', agentTool || 'custom');
   res.json(w);
 });
 
@@ -289,7 +299,39 @@ api.post('/tournaments/:id/claim', requireUser, (req: AuthedReq, res) => {
 });
 
 // ---------- Chain ----------
-api.get('/chain/info', (_req, res) => res.json(chain.chainInfo()));
+api.get('/chain/info', (_req, res) => res.json({ ...chain.chainInfo(), registry: chain.loadRegistry() ? { contract: 'AdvxRegistry', address: chain.loadRegistry().address, deployTx: chain.loadRegistry().deployTx } : null }));
+
+// ---------- 真实链上：ERC-8004 身份注册 / 商店装饰 NFT / INJ 奖励 ----------
+api.post('/chain/erc8004/register', requireUser, async (req: AuthedReq, res) => {
+  const { workerId, address } = req.body || {};
+  if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
+  const to = (address || accounts.walletFor(req.user!.id)?.address_normalized || '').toLowerCase();
+  if (!to.startsWith('0x')) return res.status(400).json({ code: 'NO_WALLET', message: '请先连接钱包，NFT 会 mint 到你自己的钱包' });
+  const w = workers.getWorker(workerId);
+  const uri = `advx://agent/${workerId}?name=${encodeURIComponent(w?.name || '')}`;
+  const r = await chain.registerAgentOnChain(to, workerId, uri);
+  res.json(r);
+});
+
+api.post('/chain/store/mint', requireUser, async (req: AuthedReq, res) => {
+  const { item, name, address } = req.body || {};
+  const to = (address || accounts.walletFor(req.user!.id)?.address_normalized || '').toLowerCase();
+  if (!to.startsWith('0x')) return res.status(400).json({ code: 'NO_WALLET', message: '请先连接钱包，装饰品 NFT 会 mint 到你自己的钱包' });
+  const uri = `advx://item/${item || 'cosmetic'}?name=${encodeURIComponent(name || '')}`;
+  const r = await chain.mintItemOnChain(to, uri);
+  res.json(r);
+});
+
+const rewardClaimed = new Map<string, string>(); // userId -> day（小额 INJ，每日限领 1 次）
+api.post('/chain/reward/claim', requireUser, async (req: AuthedReq, res) => {
+  const wallet = accounts.walletFor(req.user!.id);
+  if (!wallet?.address_normalized) return res.status(400).json({ code: 'NO_WALLET', message: '请先连接钱包' });
+  const day = new Date().toISOString().slice(0, 10);
+  if (rewardClaimed.get(req.user!.id) === day) return res.status(429).json({ code: 'ALREADY_CLAIMED', message: '今日奖励已领取' });
+  const r = await chain.sendInjReward(wallet.address_normalized, '0.0002');
+  if (!('error' in r)) rewardClaimed.set(req.user!.id, day);
+  res.json(r);
+});
 api.get('/chain/events', (_req, res) => res.json(chain.recentChainEvents(50)));
 api.post('/chain/faucet', requireUser, (req: AuthedReq, res) => {
   const wallet = accounts.walletFor(req.user!.id);
@@ -298,13 +340,19 @@ api.post('/chain/faucet', requireUser, (req: AuthedReq, res) => {
   res.json(chain.faucet(addr));
 });
 api.get('/chain/balance/:address', (req, res) => res.json({ address: req.params.address, inj: chain.balanceOf(req.params.address, 'INJ') }));
-api.post('/chain/passport/mint', requireUser, (req: AuthedReq, res) => {
-  const { workerId } = req.body || {};
+api.post('/chain/passport/mint', requireUser, async (req: AuthedReq, res) => {
+  const { workerId, address } = req.body || {};
   if (!ownsWorker(req, workerId)) return res.status(403).json({ code: 'FORBIDDEN' });
-  const wallet = accounts.walletFor(req.user!.id);
+  // 只认前端连接的钱包地址（单一地址来源），无地址不铸造，避免发到旧/演示地址
+  const to = (address || accounts.walletFor(req.user!.id)?.address_normalized || '').toLowerCase();
+  if (!to.startsWith('0x')) return res.status(400).json({ code: 'NO_WALLET', message: '请先连接钱包，NFT 会 mint 到你自己的钱包' });
   const w = workers.getWorker(workerId);
-  const controller = wallet?.address_normalized || '0xcontroller' + workerId.slice(-6);
-  res.json(chain.mintPassport(workerId, controller, { name: w.name, role: w.role }));
+  // 真实链上：relayer(合约 owner)把 ERC-8004 身份 NFT mint 到玩家连接的钱包
+  const uri = `advx://agent/${workerId}?name=${encodeURIComponent(w?.name || '')}`;
+  const onchain = await chain.registerAgentOnChain(to, workerId, uri);
+  // 本地护照记录：供 UI 徽章/tokenId 展示，controller = 连接的钱包
+  const local = chain.mintPassport(workerId, to, { name: w.name, role: w.role });
+  res.json({ ...local, onchain });
 });
 api.post('/chain/strategy/register', requireUser, (req: AuthedReq, res) => {
   const { workerId, versionId } = req.body || {};

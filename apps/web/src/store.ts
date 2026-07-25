@@ -15,6 +15,7 @@ interface AuthState {
   loading: boolean;
   init: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
+  walletAuth: (user: User, token: string) => void;
   register: (email: string, password: string, displayName: string, locale: string) => Promise<void>;
   guest: (locale: string) => Promise<void>;
   logout: () => void;
@@ -46,6 +47,7 @@ export const useAuth = create<AuthState>((set, get) => ({
     set({ user });
     await get().refreshWallet();
   },
+  walletAuth: (user, token) => { setToken(token); set({ user }); void get().refreshWallet(); },
   register: async (email, password, displayName, locale) => {
     const { user, token } = await api.post('/api/auth/register', { email, password, displayName, locale });
     setToken(token);

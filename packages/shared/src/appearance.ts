@@ -49,7 +49,8 @@ export function buildAvatarPrompt(role: RoleId, userPrompt?: string): string {
 // 形象色板（取自 8-bit 生成器 palette）
 const FURS = ['#F28C28', '#E99B37', '#8B929B', '#A66F45', '#C98B57', '#B18A68', '#5DBB63', '#8E5AC8', '#5AD2E6', '#F5C542'];
 const SHIRTS = ['#172231', '#1F4C73', '#1B2635', '#252B35', '#2367A6', '#8E5AC8', '#E84B3C', '#5DBB63', '#39414D', '#5AD2E6'];
-const ACCS = ['laptop', 'coffee', 'clipboard', 'wrench', 'magnifier', 'backpack', 'tie'];
+const ACCS = ['laptop', 'coffee', 'clipboard', 'wrench', 'magnifier', 'backpack', 'tie', 'glasses', 'headphones', 'hat', 'cap'];
+export const SPECIES = ['cat', 'capybara', 'goose', 'raccoon', 'shiba', 'hamster', 'bulldog'];
 
 // prompt 关键词 -> 代码渲染 spec 覆盖（与内置模板对应）
 const KW: Array<[RegExp, AvatarSpecOverride]> = [
@@ -61,16 +62,34 @@ const KW: Array<[RegExp, AvatarSpecOverride]> = [
   [/crunch|996|eye-bag|黑眼圈|tired/i, { shirt: '#39414D', fur: '#8B929B' }],
   [/startup|创业|hoodie/i, { shirt: '#F28C28', accessory: 'backpack' }],
   [/detect|侦探|noir|magnif/i, { shirt: '#1F4C73', accessory: 'magnifier' }],
+  // 配饰关键词：手持/穿戴道具
+  [/glasses|眼镜/i, { accessory: 'glasses' }],
+  [/headphone|headset|耳机/i, { accessory: 'headphones' }],
+  [/礼帽|top hat|fedora/i, { accessory: 'hat' }],
+  [/棒球帽|cap\b|鸭舌帽/i, { accessory: 'cap' }],
+  [/coffee|咖啡|latte/i, { accessory: 'coffee' }],
+  [/laptop|笔记本|电脑|code/i, { accessory: 'laptop' }],
+  [/wrench|扳手|修/i, { accessory: 'wrench' }],
+  [/backpack|背包/i, { accessory: 'backpack' }],
+  // 物种关键词：描述里提到动物就换物种（不再永远是职业默认猫头）
+  [/cat|猫/i, { species: 'cat' }],
+  [/capybara|水豚|卡布/i, { species: 'capybara' }],
+  [/goose|鹅|duck|鸭/i, { species: 'goose' }],
+  [/raccoon|浣熊/i, { species: 'raccoon' }],
+  [/shiba|柴|dog|狗/i, { species: 'shiba' }],
+  [/hamster|仓鼠|mouse|鼠/i, { species: 'hamster' }],
+  [/bulldog|斗牛|保安/i, { species: 'bulldog' }],
 ];
 
 export interface AvatarSpecOverride {
+  species?: string;
   fur?: string;
   shirt?: string;
   accessory?: string;
 }
 
 /**
- * 由 prompt + seed 生成代码渲染形象 spec（关键词优先，否则哈希取色）。
+ * 由 prompt + seed 生成代码渲染形象 spec（关键词优先，否则哈希取色/随机物种）。
  * 前端用 8-bit 生成器的 drawCharacter 渲染，不产生任何图片文件。
  */
 export function promptToCharSpec(prompt: string, seed: string): AvatarSpecOverride {
@@ -80,5 +99,6 @@ export function promptToCharSpec(prompt: string, seed: string): AvatarSpecOverri
   if (!spec.fur) spec.fur = FURS[rng.int(0, FURS.length - 1)];
   if (!spec.shirt) spec.shirt = SHIRTS[rng.int(0, SHIRTS.length - 1)];
   if (!spec.accessory && prompt) spec.accessory = ACCS[rng.int(0, ACCS.length - 1)];
+  if (!spec.species && prompt) spec.species = SPECIES[rng.int(0, SPECIES.length - 1)]; // 有描述就换个物种，告别千篇一律
   return spec;
 }

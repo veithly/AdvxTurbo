@@ -71,6 +71,7 @@ export interface EngineWorker extends WorkerState {
   // —— 灵感 & 服务区 ——
   canteenWait: number;     // 在食堂已等待的 tick（满 5s 给灵感+精力）
   hotelCooldownUntil: number; // 酒店补给冷却结束 tick（排到后 30s 内不能再排）
+  sponsorCdUntil: number;  // 展商发道具冷却结束 tick
 }
 
 // 工作人员（AI，逐个排查，重合才捕捉）
@@ -171,7 +172,7 @@ function makeWorker(input: SimulateInput, seat: number, id: string, name: string
     originResponsibility: 0, custodyResponsibility: 0, heroicFix: false, confessed: false,
     hotspotOn: false, signal: 0, violations: 0, bustedUntilTick: -1, buildTicks: 0, qoderUntilTick: -1,
     isFiller, disqualified: false,
-    inspiration: 0, canteenWait: 0, hotelCooldownUntil: -1,
+    inspiration: 0, canteenWait: 0, hotelCooldownUntil: -1, sponsorCdUntil: -1,
   };
 }
 

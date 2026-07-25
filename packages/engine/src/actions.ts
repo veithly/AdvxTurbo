@@ -310,7 +310,7 @@ export function advanceAction(state: MatchState, w: EngineWorker) {
       if (!requireZone(state, w, 'serverRoom')) { a.label = 'moving'; break; }
       a.label = 'fixing';
       if (state.tick >= a.endsAtTick) {
-        state.releaseProgress = clamp(state.releaseProgress - 8, 0, 200);
+        state.releaseProgress = clamp(state.releaseProgress - 8, 0, 1e9);
         state.stability = clamp(state.stability + 18, 0, 100);
         w.verifiedContribution += 6;
         log(state, { kind: 'rollback', workerId: w.id });
@@ -348,7 +348,7 @@ function shouldInterrupt(state: MatchState, w: EngineWorker, conds: string[]): b
 
 function completeTask(state: MatchState, w: EngineWorker, task: OfficeTask) {
   task.status = 'done';
-  state.releaseProgress = clamp(state.releaseProgress + task.progressReward, 0, 200);
+  state.releaseProgress = clamp(state.releaseProgress + task.progressReward, 0, 1e9);
   state.stability = clamp(state.stability + task.stabilityImpact, 0, 100);
   w.visibleContribution += task.contributionReward;
   w.verifiedContribution += task.contributionReward;
@@ -444,7 +444,7 @@ function applySkill(state: MatchState, w: EngineWorker, action: AgentAction) {
       break;
     }
     case 'emergencyRollback':
-      state.releaseProgress = clamp(state.releaseProgress - 8, 0, 200);
+      state.releaseProgress = clamp(state.releaseProgress - 8, 0, 1e9);
       state.stability = clamp(state.stability + 25, 0, 100);
       state.bugs.forEach((b) => { if (b.status !== 'resolved') b.deadlineTick += 15; });
       w.verifiedContribution += 8;

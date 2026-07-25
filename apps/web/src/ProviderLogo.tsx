@@ -32,6 +32,9 @@ function Glyph({ id, c }: { id: string; c: string }) {
     case 'deepseek':
       // 波浪曲线
       return <path d="M4 15 C7 9 11 9 12 12 C13 15 17 15 20 9" {...s} />;
+    case 'doubao':
+      // 豆包：小豆子（圆身 + 顶芽）
+      return <g {...s}><ellipse cx="12" cy="14" rx="6" ry="5.5" /><path d="M12 8.5 C12 5.5 14.5 4.5 16 5 C15.5 7 14 8.5 12 8.5 Z" fill={c} stroke="none" /></g>;
     default:
       return null;
   }

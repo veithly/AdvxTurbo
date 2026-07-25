@@ -5,7 +5,7 @@ import { DEFAULT_RULESET, ENGINE_VERSION, RULESET_VERSION, sha256Prefixed, getMo
 import type { SimulateInput, MatchReplay, RoleId } from '@blame/shared';
 import { getWorker } from './workers.js';
 import { getVersion, saveReplay } from './strategies.js';
-import { matchLeaf, submitMatchBatch } from '../chain/gateway.js';
+import { matchLeaf, submitMatchBatch, anchorMatchOnChain } from '../chain/gateway.js';
 import * as economy from './economy.js';
 
 // PRD 34.2 种子流程 (commit-reveal 混合)
@@ -103,6 +103,8 @@ export function runRankedMatch(workerIds: string[], mode = 'ranked', tournamentI
       const leaf = matchLeaf({ matchId, mode, engineHash: sha256Prefixed(ENGINE_VERSION), rulesetHash: res.rulesetHash, mapHash: res.mapHash, eventDeckHash: res.eventDeckHash, seedCommitment: seed.serverCommit, finalSeed: seed.finalSeed, resultHash: res.resultHash, replayHash: res.replayHash });
       const batch = submitMatchBatch([leaf]);
       db.prepare('UPDATE matches SET batch_id=? WHERE id=?').run(batch.batchId, matchId);
+      // 真实链上锚定（live 模式，限频）：fire-and-forget，不阻塞比赛
+      anchorMatchOnChain(res.replayHash).catch(() => {});
     } catch (e) {
       // 链不可用时不阻塞游戏
     }

@@ -5,7 +5,7 @@
   "type": "module",
   "main": "src/index.ts",
   "scripts": {
-    "dev": "node --import tsx --watch src/index.ts",
+    "dev": "node --env-file=../../.env --import tsx --watch src/index.ts",
     "start": "node --import tsx src/index.ts",
     "seed": "node --import tsx src/seed.ts"
   },
@@ -16,6 +16,7 @@
     "ethers": "^6.13.2",
     "express": "^4.21.0",
     "nanoid": "^5.0.7",
+    "solc": "^0.8.26",
     "ws": "^8.18.0"
   },
   "devDependencies": {

@@ -21,6 +21,9 @@ export function AgentLab() {
   const [result, setResult] = useState<any>(null);
   const [changeNotes, setChangeNotes] = useState('');
   const [riskNotes, setRiskNotes] = useState('');
+  const [tab, setTab] = useState<'connect' | 'code' | 'pet'>('connect');
+  const [keys, setKeys] = useState<any[]>([]);
+  const [plainKey, setPlainKey] = useState('');
 
   useEffect(() => {
     if (!user) return;
@@ -32,6 +35,8 @@ export function AgentLab() {
 
   useEffect(() => {
     if (!wid) return;
+    setPlainKey('');
+    api.get('/api/workers/' + wid + '/keys').then(setKeys).catch(() => {});
     api.get('/api/workers/' + wid + '/versions').then((vs) => {
       setVersions(vs);
       const cur = vs[vs.length - 1];
@@ -68,9 +73,32 @@ export function AgentLab() {
     if (tpl) setCode(tpl.code);
   }
 
+  // agentank 式接入：轮换 key（生成新 key 并吊销旧的，明文只显示一次）
+  async function rotateKey() {
+    if (!wid) return;
+    sfx('click');
+    try {
+      const k = await api.post(`/api/workers/${wid}/keys`, { name: 'rotated-' + Date.now() });
+      for (const old of keys) { if (!old.revoked_at) { try { await api.post(`/api/keys/${old.id}/revoke`); } catch {} } }
+      setPlainKey(k.plaintext);
+      setKeys(await api.get('/api/workers/' + wid + '/keys'));
+      sfx('success');
+    } catch (e: any) { toast.show(e.message, 'err'); }
+  }
+
+  // 复制关键信息：指南链接 + API Base + Worker Key，直接喂给 Agent
+  function copyInfo() {
+    const guide = location.origin + '/docs';
+    const base = (api.base || location.origin) + '/v1';
+    const key = plainKey || '(点击「轮换 key」获取明文 key)';
+    navigator.clipboard.writeText(`游戏: Advx 极速版 / ADVX TURBO\n指南 Guide: ${guide}\nAPI Base: ${base}\nWorker Key: ${key}\n认证: Authorization: Bearer <worker_key>\n首个请求: GET ${base}/agent/worker`);
+    toast.show(t('common.copied')); sfx('success');
+  }
+
   if (!user) return <div className="content"><div className="card center"><button className="btn primary" onClick={() => nav('/auth')}>{t('common.login')}</button></div></div>;
 
   const worker = workers.find((w) => w.id === wid);
+  const activeKey = keys.find((k) => !k.revoked_at);
 
   return (
     <div className="content">
@@ -81,6 +109,58 @@ export function AgentLab() {
         ))}
       </div>
 
+      {/* agentank 式三栏：Agent 接入 / 代码编辑 / 宠物管理 */}
+      <div className="row" style={{ marginBottom: 12 }}>
+        <button className={`btn ${tab === 'connect' ? 'primary' : ''}`} onClick={() => { setTab('connect'); sfx('click', 0.3); }}>🔌 {t('lab.tabConnect')}</button>
+        <button className={`btn ${tab === 'code' ? 'primary' : ''}`} onClick={() => { setTab('code'); sfx('click', 0.3); }}>📝 {t('lab.tabCode')}</button>
+        <button className={`btn ${tab === 'pet' ? 'primary' : ''}`} onClick={() => { setTab('pet'); sfx('click', 0.3); }}>🐾 {t('lab.tabPet')}</button>
+      </div>
+
+      {tab === 'connect' && (
+        <div className="grid" style={{ gridTemplateColumns: '1.2fr 1fr' }}>
+          <div className="card">
+            <h3>🔌 {t('lab.tabConnect')}</h3>
+            <p className="small muted">{t('lab.connectHint')}</p>
+            <label>Worker key</label>
+            <div className="keybox">{plainKey || activeKey?.display || '——'}</div>
+            <label style={{ marginTop: 8 }}>{t('lab.guide')}</label>
+            <div className="keybox">{location.origin}/docs</div>
+            <label style={{ marginTop: 8 }}>API Base</label>
+            <div className="keybox">{(api.base || location.origin) + '/v1'}</div>
+            <div className="row" style={{ marginTop: 10 }}>
+              <button className="btn primary" onClick={copyInfo}>📋 {t('lab.copyInfo')}</button>
+              <button className="btn" onClick={rotateKey}>🔁 {t('lab.rotateKey')}</button>
+              <button className="btn cyan sm" onClick={() => nav('/docs')}>📖 {t('lab.openGuide')} →</button>
+            </div>
+            {plainKey && <p className="small" style={{ color: 'var(--red2)', marginTop: 8 }}>⚠ {t('office.keyOnce')}</p>}
+          </div>
+          <div className="card">
+            <h3>🗂 {t('lab.history')}</h3>
+            <div style={{ maxHeight: 320, overflow: 'auto' }}>
+              {versions.slice().reverse().map((v) => (
+                <div key={v.id} className="row between small" style={{ borderBottom: '1px solid var(--gray2)', padding: '4px 0' }}>
+                  <span>v{v.semver} <span className="tag gray">{v.submitted_by}</span> <span className="muted">{(v.change_notes || '').slice(0, 16)}</span></span>
+                  <span>
+                    <span className={`tag ${v.status === 'published' ? 'green' : v.status === 'rejected' ? 'red' : 'gray'}`}>{v.status}</span>
+                    <button className="btn sm" style={{ marginLeft: 6 }} onClick={async () => { const d = await api.get('/api/versions/' + v.id); setCode(d.source_code || ''); setTab('code'); sfx('click', 0.3); }}>{t('lab.view')}</button>
+                  </span>
+                </div>
+              ))}
+              {versions.length === 0 && <p className="small muted">{t('common.empty')}</p>}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {tab === 'pet' && (
+        <div className="card">
+          <h3>🐾 {t('lab.tabPet')}</h3>
+          <p className="small muted">{t('create.petHint')}</p>
+          <a className="btn green" href={`${api.base}/api/workers/${wid}/codex-pet.zip?token=${localStorage.getItem('token')}`} onClick={() => sfx('click')}>🐾 {t('create.downloadPet')}</a>
+        </div>
+      )}
+
+      {tab === 'code' && (
       <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
         {/* 编辑器 */}
         <div className="card">
@@ -162,6 +242,7 @@ export function AgentLab() {
           </div>
         </div>
       </div>
+      )}
     </div>
   );
 }

@@ -7,7 +7,21 @@ import { api } from './api.js';
 import { toggleMute, isMuted, sfx } from './audio.js';
 import { PixelSprite } from './PixelSprite.js';
 import type { CharSpec } from './pixelart.js';
-import { WalletButton } from './wallet.js';
+import { ConnectButton } from '@rainbow-me/rainbowkit';
+import { useAccount } from 'wagmi';
+
+// 钱包只有一套：RainbowKit/wagmi。连上后若账号还没绑定钱包，自动绑定，
+// 保证 mint/奖励类接口（服务端要求已绑钱包）不会因 NO_WALLET 拒绝。
+export function WalletAutoLink() {
+  const { address } = useAccount();
+  const { user, wallet, refreshWallet } = useAuth();
+  useEffect(() => {
+    if (!address || !user) return;
+    if (wallet?.address_normalized === address.toLowerCase()) return;
+    api.post('/api/auth/wallet/link', { address }).then(() => refreshWallet()).catch(() => {});
+  }, [address, user, wallet?.address_normalized]);
+  return null;
+}
 
 // ---- config cache ----
 let configCache: any = null;
@@ -75,15 +89,15 @@ export function Nav() {
 
   const links: Array<[string, string, string]> = [
     ['/', 'nav.home', '🏠'], ['/office', 'nav.office', '🏢'], ['/lab', 'nav.agentLab', '🧪'], ['/arena', 'nav.arena', '⚔'],
-    ['/tournaments', 'nav.tournaments', '🏆'], ['/replays', 'nav.replays', '🎬'], ['/leaderboard', 'nav.leaderboard', '📊'],
-    ['/economy', 'nav.economy', '💰'], ['/chain', 'nav.chainVault', '⛓'], ['/store', 'nav.store', '🛍'], ['/docs', 'nav.docs', '📖'],
+    ['/leaderboard', 'nav.leaderboard', '📊'],
+    ['/chain', 'nav.chainVault', '⛓'], ['/store', 'nav.store', '🛍'], ['/docs', 'nav.docs', '📖'],
   ];
 
   return (
     <nav className="nav">
       <NavLink to="/" className="brand" onClick={() => setOpen(false)}>
         {t('app.title')}
-        <small>CATCH THE HOTSPOT</small>
+        <small>ADVX TURBO</small>
       </NavLink>
       <div className="menu-wrap">
         <button className="btn sm" onClick={() => { setOpen((o) => !o); sfx('click', 0.3); }}>☰ {t('nav.menu')}</button>
@@ -102,7 +116,7 @@ export function Nav() {
       </div>
       <span className="spacer" />
       <div className="navctl">
-        <WalletButton />
+        <ConnectButton showBalance={false} chainStatus="icon" accountStatus="address" />
         <button className="btn sm" onClick={() => { const m = toggleMute(); setMuted(m); }} title="mute">{muted ? '🔇' : '🔊'}</button>
         <button className="btn sm" onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}>{locale === 'zh' ? 'EN' : '中'}</button>
         {user ? (

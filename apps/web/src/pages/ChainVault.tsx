@@ -4,16 +4,29 @@ import { api } from '../api.js';
 import { useAuth } from '../store.js';
 import { Avatar, Loading, useToast } from '../ui.js';
 import { sfx } from '../audio.js';
-import { useWallet, sendTx, explorerTx, explorerAddr, hasWallet, INJECTIVE_TESTNET, WalletButton } from '../wallet.js';
+import { ConnectButton, useConnectModal } from '@rainbow-me/rainbowkit';
+import { useAccount, useSendTransaction, useSwitchChain, useBalance } from 'wagmi';
 
-function randAddr() {
-  return '0x' + Array.from({ length: 40 }, () => '0123456789abcdef'[Math.floor(Math.random() * 16)]).join('');
+const EXPLORER = 'https://testnet.blockscout.injective.network';
+const explorerTx = (h: string) => `${EXPLORER}/tx/${h}`;
+const explorerAddr = (a: string) => `${EXPLORER}/address/${a}`;
+
+// 自锚定交易 data：把承诺载荷编成 hex
+function toHexData(obj: unknown): `0x${string}` {
+  const s = 'BLAME:' + JSON.stringify(obj);
+  let out = '0x';
+  for (let i = 0; i < s.length; i++) out += s.charCodeAt(i).toString(16).padStart(2, '0');
+  return out as `0x${string}`;
 }
 
 export function ChainVault() {
   const t = useT();
-  const { user, wallet, refreshWallet } = useAuth();
-  const w2 = useWallet();
+  const { user } = useAuth();
+  const { address, chainId } = useAccount();
+  const { openConnectModal } = useConnectModal();
+  const { switchChainAsync } = useSwitchChain();
+  const { sendTransactionAsync } = useSendTransaction();
+  const injBalance = useBalance({ address, chainId: 1439 });
   const toast = useToast();
   const [info, setInfo] = useState<any>(null);
   const [workers, setWorkers] = useState<any[]>([]);
@@ -21,7 +34,6 @@ export function ChainVault() {
   const [events, setEvents] = useState<any[]>([]);
   const [claims, setClaims] = useState<any[]>([]);
   const [anchors, setAnchors] = useState<any[]>([]);
-  const [balance, setBalance] = useState<string | null>(null);
   const [txBusy, setTxBusy] = useState('');
 
   useEffect(() => {
@@ -35,11 +47,6 @@ export function ChainVault() {
   }, [user]);
 
   useEffect(() => { workers.forEach(loadStatus); }, [workers]);
-  useEffect(() => {
-    if (wallet?.address_normalized) {
-      api.get('/api/chain/balance/' + wallet.address_normalized).then((b) => setBalance(b.inj)).catch(() => {});
-    }
-  }, [wallet]);
 
   async function loadStatus(w: any) {
     try {
@@ -49,53 +56,68 @@ export function ChainVault() {
   }
   function err(e: any) { toast.show(e.data?.message || e.message, 'err'); }
 
-  // 用真实钱包发送链上交易 (self-anchor 携带承诺)，并回传服务端记录
+  // 用真实钱包（wagmi/RainbowKit）发送链上交易 (self-anchor 携带承诺)，并回传服务端记录
   async function walletTx(kind: string, workerId?: string) {
-    if (!w2.address) { toast.show(t('chain.connectFirst'), 'err'); await w2.connect(); return; }
+    if (!address) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
     setTxBusy(kind + (workerId || ''));
     try {
-      const txHash = await sendTx({ payload: { kind, workerId: workerId || null, at: Date.now() } });
-      await api.post('/api/chain/record', { workerId, kind, txHash, address: w2.address, chainId: INJECTIVE_TESTNET.chainIdDec });
+      if (chainId !== 1439) await switchChainAsync({ chainId: 1439 });
+      const txHash = await sendTransactionAsync({ to: address, value: 0n, data: toHexData({ kind, workerId: workerId || null, at: Date.now() }) });
+      await api.post('/api/chain/record', { workerId, kind, txHash, address, chainId: 1439 });
       setAnchors(await api.get('/api/chain/anchors'));
       toast.show(t('chain.anchored') + ' ' + txHash.slice(0, 10) + '…');
       sfx('success');
     } catch (e: any) {
-      toast.show(e?.message || 'tx failed', 'err'); sfx('error');
+      toast.show(e?.shortMessage || e?.message || 'tx failed', 'err'); sfx('error');
     } finally { setTxBusy(''); }
   }
 
-  async function linkWallet() {
-    sfx('click', 0.3);
-    try {
-      await api.post('/api/auth/wallet/link', { address: randAddr() });
-      await refreshWallet();
-      toast.show(t('chain.linkWallet'));
-    } catch (e) { err(e); }
-  }
   async function faucet() {
     sfx('click', 0.3);
+    if (!address) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
     try {
-      const r = await api.post('/api/chain/faucet', {});
-      const amt = r.balance?.amount ?? r.amount;
-      if (amt != null) setBalance(String(amt));
+      const r = await api.post('/api/chain/faucet', { address });
+      injBalance.refetch?.();
       toast.show(t('chain.faucetOk') + (r.txHash ? ' ' + String(r.txHash).slice(0, 10) + '…' : ''));
     } catch (e) { err(e); }
   }
   async function mint(w: any) {
     sfx('click', 0.3);
-    try { await api.post('/api/chain/passport/mint', { workerId: w.id }); toast.show(t('chain.minted')); await loadStatus(w); }
-    catch (e) { err(e); }
+    if (!address) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
+    setTxBusy('mint' + w.id);
+    try {
+      if (chainId !== 1439) await switchChainAsync({ chainId: 1439 });
+      // 1) 玩家用连接的钱包签一笔真实确认交易（钱包弹窗在此），携带 mint 承诺
+      const txHash = await sendTransactionAsync({ to: address, value: 0n, data: toHexData({ kind: 'passport_mint', workerId: w.id, at: Date.now() }) });
+      await api.post('/api/chain/record', { workerId: w.id, kind: 'passport_mint', txHash, address, chainId: 1439 });
+      // 2) 后端 relayer 把真 NFT mint 到同一个连接地址
+      await api.post('/api/chain/passport/mint', { workerId: w.id, address });
+      toast.show(t('chain.minted') + ' ' + txHash.slice(0, 10) + '…');
+      sfx('success');
+      await loadStatus(w);
+      setAnchors(await api.get('/api/chain/anchors'));
+    } catch (e: any) {
+      toast.show(e?.shortMessage || e?.data?.message || e?.message || 'mint failed', 'err'); sfx('error');
+    } finally { setTxBusy(''); }
   }
   async function register(w: any) {
     sfx('click', 0.3);
+    if (!address) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
+    setTxBusy('reg' + w.id);
     try {
+      if (chainId !== 1439) await switchChainAsync({ chainId: 1439 });
       const versions = await api.get('/api/workers/' + w.id + '/versions');
       const published = versions.filter((v: any) => v.published_at || v.status === 'published');
       const versionId = (published[published.length - 1] || versions[versions.length - 1])?.id;
+      // 玩家钱包签名确认策略登记
+      const txHash = await sendTransactionAsync({ to: address, value: 0n, data: toHexData({ kind: 'strategy_register', workerId: w.id, versionId, at: Date.now() }) });
+      await api.post('/api/chain/record', { workerId: w.id, kind: 'strategy_register', txHash, address, chainId: 1439 });
       await api.post('/api/chain/strategy/register', { workerId: w.id, versionId });
-      toast.show(t('chain.strategyReg'));
+      toast.show(t('chain.strategyReg') + ' ' + txHash.slice(0, 10) + '…');
+      sfx('success');
       await loadStatus(w);
-    } catch (e) { err(e); }
+    } catch (e: any) { toast.show(e?.shortMessage || e?.data?.message || e?.message || 'tx failed', 'err'); sfx('error'); }
+    finally { setTxBusy(''); }
   }
 
   if (!info) return <Loading />;
@@ -110,14 +132,12 @@ export function ChainVault() {
 
       {/* 真实钱包链上交易 */}
       <div className="card" style={{ borderColor: 'var(--purple)' }}>
-        <div className="row between"><h3>⛓ {t('chain.realTx')} · Injective EVM 1439</h3><WalletButton /></div>
-        <p className="small muted">{t('chain.walletTx')} — {INJECTIVE_TESTNET.chainName}. {hasWallet() ? '' : '(MetaMask / OKX Wallet)'}</p>
-        {w2.address && (
-          <p className="small">{w2.address.slice(0, 12)}… · {w2.balance != null ? (Number(BigInt(w2.balance)) / 1e18).toFixed(4) + ' INJ' : ''} · <a href={explorerAddr(w2.address)} target="_blank" rel="noreferrer">Explorer →</a></p>
+        <div className="row between"><h3>⛓ {t('chain.realTx')} · Injective EVM 1439</h3><ConnectButton showBalance={false} chainStatus="icon" /></div>
+        <p className="small muted">{t('chain.walletTx')} — Injective EVM Testnet.</p>
+        {address && (
+          <p className="small">{address.slice(0, 12)}… · {injBalance.data ? (Number(injBalance.data.value) / 1e18).toFixed(4) + ' INJ' : ''} · <a href={explorerAddr(address)} target="_blank" rel="noreferrer">Explorer →</a></p>
         )}
         <div className="row" style={{ marginTop: 6 }}>
-          <button className="btn purple sm" disabled={!!txBusy} onClick={() => walletTx('passport_mint', workers[0]?.id)}>🪩 Passport TX</button>
-          <button className="btn cyan sm" disabled={!!txBusy} onClick={() => walletTx('strategy_register', workers[0]?.id)}>📝 Strategy TX</button>
           <button className="btn sm" disabled={!!txBusy} onClick={() => walletTx('anchor')}>⚓ Anchor TX</button>
         </div>
         {anchors.length > 0 && (
@@ -135,16 +155,17 @@ export function ChainVault() {
 
       <div className="card">
         <h3>{t('chain.wallet')}</h3>
-        {!wallet ? (
-          <button className="btn primary" onClick={linkWallet}>{t('chain.simulateWallet')}</button>
+        {!address ? (
+          <>
+            <p className="small muted">{t('chain.connectFirst')}</p>
+            <button className="btn primary" onClick={() => openConnectModal?.()}>{t('chain.linkWallet')}</button>
+          </>
         ) : (
           <>
-            <p className="small"><code>{wallet.address_display}</code></p>
-            <p className="small muted">{t('chain.balance')}: {balance != null ? (Number(balance) / 1e18) + ' INJ' : '—'}</p>
+            <p className="small"><code>{address}</code></p>
+            <p className="small muted">{t('chain.balance')}: {injBalance.data ? (Number(injBalance.data.value) / 1e18) + ' INJ' : '—'}</p>
             <button className="btn sm cyan" onClick={faucet}>{t('chain.faucet')}</button>
-            {info.explorer && (
-              <a className="btn sm" href={`${info.explorer}/address/${wallet.address_normalized}`} target="_blank" rel="noreferrer">{t('chain.explorer')} →</a>
-            )}
+            <a className="btn sm" href={explorerAddr(address)} target="_blank" rel="noreferrer">{t('chain.explorer')} →</a>
           </>
         )}
       </div>
@@ -164,8 +185,8 @@ export function ChainVault() {
                   <span className="small muted">{t('chain.strategyReg')}: {st?.registrations?.length ?? 0}</span>
                 </div>
                 <div className="row" style={{ marginTop: 8 }}>
-                  {!passport && <button className="btn sm primary" onClick={() => mint(w)}>{t('chain.mintPassport')}</button>}
-                  {passport && <button className="btn sm purple" onClick={() => register(w)}>{t('chain.registerStrategy')}</button>}
+                  {!passport && <button className="btn sm primary" disabled={txBusy === 'mint' + w.id} onClick={() => mint(w)}>{txBusy === 'mint' + w.id ? '…' : t('chain.mintPassport')}</button>}
+                  {passport && <button className="btn sm purple" disabled={txBusy === 'reg' + w.id} onClick={() => register(w)}>{txBusy === 'reg' + w.id ? '…' : t('chain.registerStrategy')}</button>}
                 </div>
               </div>
             );
