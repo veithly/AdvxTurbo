@@ -16,8 +16,10 @@ COPY packages/engine/package.json packages/engine/
 COPY apps/server/package.json apps/server/
 COPY apps/web/package.json apps/web/
 
-# 安装整个 workspace 依赖（server 靠 tsx 运行时解析本地包，无需预编译）
-RUN npm ci
+# 安装整个 workspace 依赖。server 靠 tsx 运行时执行 TS 源码，而 tsx 在根
+# devDependencies 中——生产运行必需，故用 --include=dev 强制安装，
+# 不能依赖默认行为（NODE_ENV=production 时 npm 会跳过 devDependencies）。
+RUN npm ci --include=dev
 
 # 复制运行 server 真正需要的源码与静态资源
 COPY packages/shared packages/shared
@@ -26,6 +28,7 @@ COPY apps/server apps/server
 COPY assets_audio assets_audio
 COPY blame_game_8bit_assets_v2 blame_game_8bit_assets_v2
 
+# 依赖装完后再切生产模式，避免影响上面的 devDependencies 安装
 ENV NODE_ENV=production
 ENV PORT=4000
 # SQLite 落到持久卷挂载点（见 Zeabur 持久卷配置：挂到 /app/apps/server/data）
