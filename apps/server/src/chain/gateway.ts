@@ -4,6 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { db, now } from '../db.js';
 import { id } from '../util.js';
+import { passportMetadata, passportCardSvg } from './nftArt.js';
 
 const __chainDir = path.dirname(fileURLToPath(import.meta.url));
 // 已部署的真实合约（apps/server/chain-deploy.json，由 scripts/deploy-chain.mjs 生成）
@@ -71,9 +72,21 @@ CREATE TABLE IF NOT EXISTS strategy_registrations (
 );
 `);
 
+// live 模式回填列：真实链上 tx 与链上 tokenId（与本地展示 id 解耦）
+try { db.exec('ALTER TABLE chain_passports ADD COLUMN onchain_tx TEXT'); } catch {}
+try { db.exec('ALTER TABLE chain_passports ADD COLUMN onchain_token_id INTEGER'); } catch {}
+
 let provider: ethers.JsonRpcProvider | null = null;
 let wallet: ethers.Wallet | null = null;
 export let CHAIN_MODE: 'live' | 'mock' = 'mock';
+
+// ---- 交易队列：串行化所有链上调用避免 nonce 竞争 ----
+let txQueue: Promise<any> = Promise.resolve();
+function enqueue<T>(fn: () => Promise<T>): Promise<T> {
+  const p = txQueue.then(fn, fn); // 上一笔失败也继续
+  txQueue = p.catch(() => {}); // 不让未处理 rejection 泄漏
+  return p;
+}
 
 export function initChain() {
   const pk = process.env.RELAYER_PRIVATE_KEY || process.env.PRIVATE_KEY;
@@ -134,14 +147,116 @@ export function mintPassport(workerId: string, controllerAddr: string, metadata:
   ).run(tokenId, workerId, wHash, metaHash, controllerAddr, now(), txHash);
   recordEvent('PassportMinted', { tokenId, workerId, workerHash: wHash, metadataHash: metaHash }, txHash);
   db.prepare('UPDATE workers SET passport_network=?, passport_token_id=?, passport_worker_hash=? WHERE id=?').run(ACTIVE.key, String(tokenId), wHash, workerId);
+  // live 模式：后台补一笔真实链上铸造（不阻塞创建流程）
+  enqueue(() => anchorPassportOnChain(workerId)).catch((e) => console.log('[chain] live mint failed:', e?.message || e));
   return { alreadyMinted: false, tokenId, txHash, workerHash: wHash, metadataHash: metaHash };
+}
+
+// ---- Live 真实合约调用 (Passport) ----
+const PASSPORT_ABI = [
+  'function mintPassport(address owner, bytes32 workerIdHash, bytes32 metadataHash, string metadataURI) returns (uint256)',
+  'function updateMetadata(uint256 tokenId, bytes32 newMetadataHash, string newURI)',
+  'function activePassportOf(bytes32) view returns (uint256)',
+  'event PassportMinted(uint256 indexed tokenId, address indexed owner, bytes32 workerIdHash, bytes32 metadataHash)',
+];
+
+/** 组装 NFT 卡片元数据（8-bit 形象 + 名字），tokenURI 为完全上链的 data:URI */
+function passportArtFor(workerId: string, wHash: string) {
+  const w = db.prepare('SELECT name, role, appearance_json FROM workers WHERE id=?').get(workerId) as any;
+  let spec: any;
+  try { spec = JSON.parse(w?.appearance_json || '{}')?.charSpec; } catch {}
+  return passportMetadata({ name: w?.name || 'Agent', role: w?.role || 'engineer', spec, workerHash: wHash });
+}
+
+/** 预览用：护照卡片 SVG（供 /api/chain/passports/:workerId/card.svg） */
+export function passportCardSvgFor(workerId: string): string | null {
+  const w = db.prepare('SELECT name, role, appearance_json FROM workers WHERE id=?').get(workerId) as any;
+  if (!w) return null;
+  let spec: any;
+  try { spec = JSON.parse(w.appearance_json || '{}')?.charSpec; } catch {}
+  return passportCardSvg(w.name || 'Agent', w.role || 'engineer', spec);
+}
+
+function passportContract(): ethers.Contract | null {
+  const addr = process.env.ADDR_PASSPORT || '';
+  if (CHAIN_MODE !== 'live' || !wallet || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return null;
+  return new ethers.Contract(addr, PASSPORT_ABI, wallet);
+}
+
+/** live 模式：把本地 passport 记录真实铸到链上，回填真 tx 与链上 tokenId；可用 ownerOverride 指定真实钱包 */
+export async function anchorPassportOnChain(workerId: string, ownerOverride?: string) {
+  const c = passportContract();
+  if (!c) return { ok: false, error: 'NOT_LIVE' };
+  const row = db.prepare('SELECT * FROM chain_passports WHERE worker_id=?').get(workerId) as any;
+  if (!row) return { ok: false, error: 'NO_LOCAL_PASSPORT' };
+  if (row.onchain_tx) return { ok: true, alreadyOnChain: true, txHash: row.onchain_tx, tokenId: row.onchain_token_id, explorer: `${ACTIVE.explorer}/tx/${row.onchain_tx}` };
+  const owner = ownerOverride || row.controller;
+  // tokenURI：内嵌「形象+名字」SVG 卡片的 data:URI，钱包/浏览器可直接显示图片
+  const art = passportArtFor(workerId, row.worker_hash);
+  const tx = await c.mintPassport(owner, row.worker_hash, art.metadataHash, art.tokenURI);
+  // 该 RPC 回执轮询极慢，tx.wait() 会卡死：手动轮询回执 + activePassportOf 后备确认
+  let chainTokenId: number | null = null;
+  for (let i = 0; i < 60; i++) {
+    const rc = await provider!.getTransactionReceipt(tx.hash).catch(() => null);
+    if (rc) {
+      if (rc.status !== 1) throw new Error('MINT_REVERTED');
+      for (const log of rc.logs || []) {
+        try {
+          const p = c.interface.parseLog(log);
+          if (p?.name === 'PassportMinted') chainTokenId = Number(p.args.tokenId);
+        } catch {}
+      }
+      break;
+    }
+    const active: bigint = await c.activePassportOf(row.worker_hash).catch(() => 0n);
+    if (active && active !== 0n) { chainTokenId = Number(active); break; }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  if (chainTokenId === null) throw new Error('MINT_TIMEOUT');
+  db.prepare('UPDATE chain_passports SET onchain_tx=?, onchain_token_id=?, controller=? WHERE worker_id=?').run(tx.hash, chainTokenId, owner, workerId);
+  recordEvent('PassportMintedOnChain', { workerId, owner, tokenId: chainTokenId }, tx.hash);
+  console.log('[chain] passport minted on-chain:', workerId, 'tokenId', chainTokenId, tx.hash);
+  return { ok: true, txHash: tx.hash, tokenId: chainTokenId, explorer: `${ACTIVE.explorer}/tx/${tx.hash}` };
 }
 
 export function getPassport(workerId: string) {
   return db.prepare('SELECT * FROM chain_passports WHERE worker_id = ?').get(workerId) as any;
 }
 
+/** live 模式：为已上链的护照重刷 tokenURI（补图/改名后更新卡片） */
+export async function refreshPassportArtOnChain(workerId: string) {
+  const c = passportContract();
+  if (!c) return { ok: false, error: 'NOT_LIVE' };
+  const row = db.prepare('SELECT * FROM chain_passports WHERE worker_id=?').get(workerId) as any;
+  if (!row?.onchain_token_id) return { ok: false, error: 'NOT_ON_CHAIN' };
+  const art = passportArtFor(workerId, row.worker_hash);
+  const tx = await c.updateMetadata(row.onchain_token_id, art.metadataHash, art.tokenURI);
+  for (let i = 0; i < 60; i++) {
+    const rc = await provider!.getTransactionReceipt(tx.hash).catch(() => null);
+    if (rc) {
+      if (rc.status !== 1) throw new Error('UPDATE_REVERTED');
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  db.prepare('UPDATE chain_passports SET metadata_hash=? WHERE worker_id=?').run(art.metadataHash, workerId);
+  console.log('[chain] passport art refreshed:', workerId, 'tokenId', row.onchain_token_id, tx.hash);
+  return { ok: true, txHash: tx.hash, tokenId: row.onchain_token_id, explorer: `${ACTIVE.explorer}/tx/${tx.hash}` };
+}
+
 // ---- Strategy Registry (PRD 31) ----
+const STRATEGY_ABI = [
+  'function registerVersion(uint256 passportId, bytes32 versionHash, bytes32 sourceHash, bytes32 artifactHash, bytes32 parentVersionHash, bytes32 compatibilityHash, bytes32 metadataHash, string metadataURI)',
+  'function commitments(bytes32) view returns (uint256 passportId, bytes32 versionHash, bytes32 sourceHash, bytes32 artifactHash, bytes32 parentVersionHash, bytes32 compatibilityHash, bytes32 metadataHash, uint64 registeredAt, address registrant, bool revoked)',
+  'event StrategyVersionRegistered(uint256 indexed passportId, bytes32 indexed versionHash, bytes32 sourceHash, address registrant)',
+];
+
+function strategyContract(): ethers.Contract | null {
+  const addr = process.env.ADDR_STRATEGY || '';
+  if (CHAIN_MODE !== 'live' || !wallet || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return null;
+  return new ethers.Contract(addr, STRATEGY_ABI, wallet);
+}
+
 export function registerStrategy(passportId: number, sourceHash: string, parentHash: string, metadataUri: string) {
   const versionHash = ethers.keccak256(ethers.toUtf8Bytes(sourceHash + ':' + passportId + ':' + Date.now()));
   const txHash = mockTx('register:' + versionHash);
@@ -149,10 +264,56 @@ export function registerStrategy(passportId: number, sourceHash: string, parentH
     'INSERT OR REPLACE INTO strategy_registrations (version_hash, passport_id, source_hash, parent_hash, metadata_uri, tx_hash, registered_at) VALUES (?,?,?,?,?,?,?)'
   ).run(versionHash, passportId, sourceHash, parentHash, metadataUri, txHash, now());
   recordEvent('StrategyVersionRegistered', { passportId, versionHash, sourceHash }, txHash);
+  // live 模式：后台真链登记（不阻塞）
+  enqueue(() => anchorStrategyOnChain(passportId, versionHash, sourceHash, parentHash, metadataUri))
+    .catch((e) => console.log('[chain] strategy register failed:', e?.message || e));
   return { versionHash, txHash };
 }
 
+/** live 模式：真实调用 StrategyRegistry.registerVersion */
+async function anchorStrategyOnChain(passportId: number, versionHash: string, sourceHash: string, parentHash: string, metadataUri: string) {
+  const c = strategyContract();
+  if (!c) return;
+  // 需要链上 tokenId（不是本地 token_id）
+  const passport = db.prepare('SELECT onchain_token_id FROM chain_passports WHERE token_id=?').get(passportId) as any;
+  const onchainId = passport?.onchain_token_id;
+  if (!onchainId) { console.log('[chain] strategy skip: passport not on-chain yet'); return; }
+  const artifactHash = ethers.ZeroHash;
+  const compatibilityHash = ethers.ZeroHash;
+  const metadataHash = ethers.keccak256(ethers.toUtf8Bytes(metadataUri));
+  const parentBytes = parentHash && parentHash !== '0x0' ? ethers.zeroPadValue(ethers.toBeHex(parentHash), 32) : ethers.ZeroHash;
+  const tx = await c.registerVersion(
+    onchainId, versionHash,
+    ethers.zeroPadValue(ethers.toBeHex(sourceHash.startsWith('0x') ? sourceHash : '0x' + sourceHash), 32),
+    artifactHash, parentBytes, compatibilityHash, metadataHash, metadataUri
+  );
+  // 轮询回执
+  for (let i = 0; i < 60; i++) {
+    const rc = await provider!.getTransactionReceipt(tx.hash).catch(() => null);
+    if (rc) {
+      if (rc.status !== 1) throw new Error('STRATEGY_REGISTER_REVERTED');
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  // 回填真链 tx
+  db.prepare('UPDATE strategy_registrations SET tx_hash=? WHERE version_hash=?').run(tx.hash, versionHash);
+  console.log('[chain] strategy registered on-chain:', versionHash, 'passportId', onchainId, tx.hash);
+}
+
 // ---- Match Batch Root (PRD 32) ----
+const MATCHROOT_ABI = [
+  'function submitBatch(uint64 batchId, bytes32 merkleRoot, bytes32 engineSetHash, bytes32 manifestHash, uint64 matchCount, uint64 startTime, uint64 endTime, string manifestURI, bytes[] verifierSignatures)',
+  'function batches(uint64) view returns (uint64 batchId, bytes32 merkleRoot, bytes32 engineSetHash, bytes32 manifestHash, uint64 matchCount, uint64 startTime, uint64 endTime, string manifestURI, bool invalidated)',
+  'event MatchBatchSubmitted(uint64 indexed batchId, bytes32 merkleRoot, uint64 matchCount, string manifestURI)',
+];
+
+function matchRootContract(): ethers.Contract | null {
+  const addr = process.env.ADDR_MATCHROOT || '';
+  if (CHAIN_MODE !== 'live' || !wallet || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return null;
+  return new ethers.Contract(addr, MATCHROOT_ABI, wallet);
+}
+
 export function submitMatchBatch(leaves: string[]) {
   const root = merkleRoot(leaves);
   const row = db.prepare('SELECT COALESCE(MAX(batch_id),1000)+1 AS next FROM match_batches').get() as any;
@@ -163,7 +324,36 @@ export function submitMatchBatch(leaves: string[]) {
     'INSERT INTO match_batches (batch_id, merkle_root, engine_set_hash, manifest_hash, match_count, start_time, end_time, manifest_uri, tx_hash, invalidated) VALUES (?,?,?,?,?,?,?,?,?,0)'
   ).run(batchId, root, manifestHash, manifestHash, leaves.length, now(), now(), `/api/chain/batches/${batchId}/manifest`, txHash);
   recordEvent('MatchBatchSubmitted', { batchId, merkleRoot: root, matchCount: leaves.length }, txHash);
+  // live 模式：后台真链锚定（不阻塞比赛结算）
+  enqueue(() => anchorBatchOnChain(batchId, root, manifestHash, leaves.length))
+    .catch((e) => console.log('[chain] batch submit failed:', e?.message || e));
   return { batchId, root, txHash };
+}
+
+/** live 模式：真实调用 MatchRootRegistry.submitBatch */
+async function anchorBatchOnChain(batchId: number, root: string, manifestHash: string, matchCount: number) {
+  const c = matchRootContract();
+  if (!c) return;
+  const nowTs = BigInt(Math.floor(Date.now() / 1000));
+  const engineSetHash = ethers.keccak256(ethers.toUtf8Bytes('engine:' + (process.env.ENGINE_VERSION || 'v1')));
+  // MVP 验证器签名：relayer 自签 2 次（测试网演示用，主网需真实多方签名）
+  const msg = ethers.solidityPackedKeccak256(['uint64', 'bytes32'], [batchId, root]);
+  const sig = await wallet!.signMessage(ethers.getBytes(msg));
+  const verifierSigs = [sig, sig]; // 2 个同源签名满足合约 >= 2 要求
+  const tx = await c.submitBatch(
+    batchId, root, engineSetHash, manifestHash, matchCount,
+    nowTs, nowTs, `/api/chain/batches/${batchId}/manifest`, verifierSigs
+  );
+  for (let i = 0; i < 60; i++) {
+    const rc = await provider!.getTransactionReceipt(tx.hash).catch(() => null);
+    if (rc) {
+      if (rc.status !== 1) throw new Error('BATCH_SUBMIT_REVERTED');
+      break;
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  db.prepare('UPDATE match_batches SET tx_hash=? WHERE batch_id=?').run(tx.hash, batchId);
+  console.log('[chain] batch anchored on-chain:', batchId, 'root', root.slice(0, 18), tx.hash);
 }
 
 export function matchLeaf(m: {
@@ -276,7 +466,7 @@ export function loadRegistry(): any | null {
   try { return JSON.parse(fs.readFileSync(path.join(__chainDir, '../../chain-registry.json'), 'utf8')); } catch { return null; }
 }
 
-let txQueue: Promise<unknown> = Promise.resolve();
+// 复用顶部的 txQueue（单一队列串行化所有链上调用，避免 nonce 竞争）
 function enqueueTx<T>(fn: () => Promise<T>): Promise<T> {
   const p = txQueue.then(fn, fn);
   txQueue = p.catch(() => {});

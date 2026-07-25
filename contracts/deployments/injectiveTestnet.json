@@ -1,0 +1,10 @@
+{
+  "network": "injectiveTestnet",
+  "chainId": 1439,
+  "deployer": "0x72D827FB038d52E9FB31899497B5832092d2104e",
+  "AgentPassport": "0x22338e54c2fF2A619c9Ff2e18b6615c15777a79D",
+  "StrategyRegistry": "0x6CD3D895004d36c7E81232337E01D13F8b20e7cf",
+  "MatchRootRegistry": "0xC702E5ef6BEf35F3e4d5b774BA535C4872666F88",
+  "TournamentEscrow": "0x388FFE3a84d5FF78E07e8685503405Aa87dF8175",
+  "deployedAt": "2026-07-24T18:47:08.362Z"
+}

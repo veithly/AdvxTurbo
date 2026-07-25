@@ -116,7 +116,7 @@ export function Office() {
         <button className="btn purple sm" onClick={() => nav('/create')}>＋ {t('home.createWorker')}</button>
       </div>
 
-      <div className="row" style={{ marginBottom: 16 }}>
+      <div className="row worker-scroll" style={{ marginBottom: 16 }}>
         {workers.map((w) => (
           <div key={w.id} className={`role-pick ${sel?.id === w.id ? 'sel' : ''}`} style={{ minWidth: 110, position: 'relative', outline: team.includes(w.id) ? '2px solid var(--green)' : 'none' }} onClick={() => selectWorker(w)}>
             {isVol(w)

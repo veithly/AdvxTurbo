@@ -161,7 +161,7 @@ export function AgentLab() {
       )}
 
       {tab === 'code' && (
-      <div className="grid" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
+      <div className="grid lab-layout" style={{ gridTemplateColumns: '1.4fr 1fr' }}>
         {/* 编辑器 */}
         <div className="card">
           <div className="row between">
