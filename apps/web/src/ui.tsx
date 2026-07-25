@@ -82,6 +82,7 @@ export function Nav() {
   return (
     <nav className="nav">
       <NavLink to="/" className="brand" onClick={() => setOpen(false)}>
+        <img src="/logo.png" alt="logo" style={{ height: 28, width: 'auto', imageRendering: 'pixelated', marginRight: 6, verticalAlign: 'middle' }} />
         {t('app.title')}
         <small>CATCH THE HOTSPOT</small>
       </NavLink>
