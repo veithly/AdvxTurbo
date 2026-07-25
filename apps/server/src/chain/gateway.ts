@@ -12,6 +12,15 @@ export function loadDeployedChain(): any | null {
   try { return JSON.parse(fs.readFileSync(path.join(__chainDir, '../../chain-deploy.json'), 'utf8')); } catch { return null; }
 }
 
+// 核心合约地址（apps/server/chain-core.json，由 contracts/scripts/redeploy-core.cjs 生成）：
+// AgentPassport / StrategyRegistry / MatchRootRegistry，admin = relayer，无需再配 ADDR_* 环境变量
+let coreCache: any | null | undefined;
+export function loadCoreContracts(): any | null {
+  if (coreCache !== undefined) return coreCache;
+  try { coreCache = JSON.parse(fs.readFileSync(path.join(__chainDir, '../../chain-core.json'), 'utf8')); } catch { coreCache = null; }
+  return coreCache;
+}
+
 // PRD 26/29/34：Injective EVM 集成 (Testnet 1439 / Mainnet 1776)
 // 无 RPC/密钥时进入 mock 模式：把承诺、批次、奖金托管记录在本地账本，
 // 保证 faucet、Passport、策略登记、比赛锚定、奖励领取全流程可本地演示。
@@ -21,7 +30,8 @@ export const INJECTIVE_NETWORKS = {
     key: 'injective-evm-testnet',
     chainId: 1439,
     name: 'Injective EVM Testnet',
-    rpc: process.env.INJECTIVE_TESTNET_RPC || 'https://k8s.testnet.json-rpc.injective.network/',
+    // sentry 节点回执查询可靠；k8s 节点 getTransactionReceipt 严重滞后（tx 实际已上链却查不到）
+    rpc: process.env.INJECTIVE_TESTNET_RPC || 'https://testnet.sentry.chain.json-rpc.injective.network/',
     explorer: 'https://testnet.blockscout.injective.network',
   },
   mainnet: {
@@ -120,13 +130,17 @@ export function chainInfo() {
     deployed: dep ? { contract: 'BlameAnchor', address: dep.address, deployTx: dep.deployTx, anchorTx: dep.anchorTx, matchCount: dep.matchCount, deployer: dep.deployer } : null,
     contracts: {
       BlameAnchor: dep?.address || process.env.ADDR_ANCHOR || null,
-      AgentPassport: process.env.ADDR_PASSPORT || '0xPassport000000000000000000000000000000000',
-      StrategyRegistry: process.env.ADDR_STRATEGY || '0xStrategy000000000000000000000000000000000',
-      MatchRootRegistry: process.env.ADDR_MATCHROOT || '0xMatchRoot00000000000000000000000000000000',
-      TournamentEscrow: process.env.ADDR_TOURNEY || '0xTournament0000000000000000000000000000000',
+      AgentPassport: passportAddr() || null,
+      StrategyRegistry: strategyAddr() || null,
+      MatchRootRegistry: matchRootAddr() || null,
+      TournamentEscrow: process.env.ADDR_TOURNEY || null,
     },
   };
 }
+
+function passportAddr(): string { return process.env.ADDR_PASSPORT || loadCoreContracts()?.AgentPassport || ''; }
+function strategyAddr(): string { return process.env.ADDR_STRATEGY || loadCoreContracts()?.StrategyRegistry || ''; }
+function matchRootAddr(): string { return process.env.ADDR_MATCHROOT || loadCoreContracts()?.MatchRootRegistry || ''; }
 
 // keccak256(workerId) 作为 workerHash
 export function workerHash(workerId: string): string {
@@ -178,7 +192,7 @@ export function passportCardSvgFor(workerId: string): string | null {
 }
 
 function passportContract(): ethers.Contract | null {
-  const addr = process.env.ADDR_PASSPORT || '';
+  const addr = passportAddr();
   if (CHAIN_MODE !== 'live' || !wallet || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return null;
   return new ethers.Contract(addr, PASSPORT_ABI, wallet);
 }
@@ -252,7 +266,7 @@ const STRATEGY_ABI = [
 ];
 
 function strategyContract(): ethers.Contract | null {
-  const addr = process.env.ADDR_STRATEGY || '';
+  const addr = strategyAddr();
   if (CHAIN_MODE !== 'live' || !wallet || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return null;
   return new ethers.Contract(addr, STRATEGY_ABI, wallet);
 }
@@ -309,7 +323,7 @@ const MATCHROOT_ABI = [
 ];
 
 function matchRootContract(): ethers.Contract | null {
-  const addr = process.env.ADDR_MATCHROOT || '';
+  const addr = matchRootAddr();
   if (CHAIN_MODE !== 'live' || !wallet || !/^0x[0-9a-fA-F]{40}$/.test(addr)) return null;
   return new ethers.Contract(addr, MATCHROOT_ABI, wallet);
 }
@@ -416,25 +430,55 @@ function hashPair(a: string, b: string): string {
   return ethers.keccak256(ethers.concat([x, y]));
 }
 
-// ---- Faucet (PRD: 完整 faucet 功能) ----
+// ---- Faucet：live 模式下 relayer 真实转账 0.01 INJ gas，mock 模式回退本地账本 ----
 const FAUCET_TOKEN = 'INJ';
-const FAUCET_AMOUNT = ethers.parseEther('1').toString();
+const FAUCET_INJ = process.env.FAUCET_INJ || '0.01';
+const FAUCET_AMOUNT = ethers.parseEther(FAUCET_INJ).toString();
+const RELAYER_RESERVE = ethers.parseEther(process.env.FAUCET_RESERVE_INJ || '0.02'); // relayer 自留 gas，低于此值停发
 
-export function faucet(address: string) {
+/** relayer 向任意地址发 gas（faucet / 托管钱包首次注资共用）：真实转账，余额保护 */
+export async function sendGas(to: string, amountInj: string): Promise<{ txHash: string; mode: string; explorer?: string } | { error: string }> {
+  if (CHAIN_MODE !== 'live' || !wallet) return { txHash: mockTx('gas:' + to), mode: 'mock' };
+  try {
+    return await withTimeout(enqueueTx(async () => {
+      const bal = await provider!.getBalance(wallet!.address);
+      if (bal < ethers.parseEther(amountInj) + RELAYER_RESERVE) throw new Error('FAUCET_EMPTY: relayer 余额不足，请给 ' + wallet!.address + ' 充值测试币');
+      const tx = await wallet!.sendTransaction({ to, value: ethers.parseEther(amountInj) });
+      return { txHash: tx.hash, mode: 'live', explorer: `${ACTIVE.explorer}/tx/${tx.hash}` };
+    }), 30_000);
+  } catch (e: any) {
+    return { error: (e?.shortMessage || e?.message || String(e)).slice(0, 200) };
+  }
+}
+
+export async function faucet(address: string) {
   const day = new Date().toISOString().slice(0, 10);
+  const limit = CHAIN_MODE === 'live' ? 1 : 3; // 真钱每地址每日 1 次，mock 保留 3 次演示
   const already = db.prepare("SELECT COUNT(*) AS c FROM faucet_log WHERE address=? AND created_at LIKE ?").get(address, day + '%') as any;
-  if (already.c >= 3) return { ok: false, error: 'FAUCET_RATE_LIMIT', message: '每日领取上限为 3 次' };
-  const txHash = mockTx('faucet:' + address);
+  if (already.c >= limit) return { ok: false, error: 'FAUCET_RATE_LIMIT', message: `每日领取上限为 ${limit} 次` };
+  const sent = await sendGas(address, FAUCET_INJ);
+  if ('error' in sent) return { ok: false, error: 'FAUCET_TX_FAILED', message: sent.error };
   const bal = (db.prepare('SELECT amount FROM chain_balances WHERE address=? AND token=?').get(address, FAUCET_TOKEN) as any)?.amount || '0';
   const newBal = (BigInt(bal) + BigInt(FAUCET_AMOUNT)).toString();
   db.prepare('INSERT OR REPLACE INTO chain_balances (address, token, amount) VALUES (?,?,?)').run(address, FAUCET_TOKEN, newBal);
-  db.prepare('INSERT INTO faucet_log (id, address, amount, token, tx_hash, created_at) VALUES (?,?,?,?,?,?)').run(id('fct'), address, FAUCET_AMOUNT, FAUCET_TOKEN, txHash, now());
-  recordEvent('FaucetDrip', { address, amount: FAUCET_AMOUNT }, txHash);
-  return { ok: true, txHash, token: FAUCET_TOKEN, amount: FAUCET_AMOUNT, balance: newBal, explorer: `${ACTIVE.explorer}/tx/${txHash}` };
+  db.prepare('INSERT INTO faucet_log (id, address, amount, token, tx_hash, created_at) VALUES (?,?,?,?,?,?)').run(id('fct'), address, FAUCET_AMOUNT, FAUCET_TOKEN, sent.txHash, now());
+  recordEvent('FaucetDrip', { address, amount: FAUCET_AMOUNT, mode: sent.mode }, sent.txHash);
+  return { ok: true, txHash: sent.txHash, mode: sent.mode, token: FAUCET_TOKEN, amount: FAUCET_AMOUNT, balance: newBal, explorer: `${ACTIVE.explorer}/tx/${sent.txHash}` };
 }
 
 export function balanceOf(address: string, token = FAUCET_TOKEN): string {
   return (db.prepare('SELECT amount FROM chain_balances WHERE address=? AND token=?').get(address, token) as any)?.amount || '0';
+}
+
+/** live 模式：查真实链上 INJ 余额；mock 回退本地账本 */
+export async function chainBalanceOf(address: string): Promise<{ address: string; inj: string; mode: string }> {
+  if (CHAIN_MODE === 'live' && provider) {
+    try {
+      const bal = await withTimeout(provider.getBalance(address), 10_000);
+      return { address, inj: ethers.formatEther(bal), mode: 'live' };
+    } catch {}
+  }
+  return { address, inj: ethers.formatEther(BigInt(balanceOf(address))), mode: 'mock' };
 }
 
 export function credit(address: string, token: string, amount: string) {
@@ -508,8 +552,32 @@ export async function mintItemOnChain(to: string, uri: string) {
   const reg = loadRegistry();
   if (!reg) return { error: 'REGISTRY_NOT_DEPLOYED' };
   const r = await sendContractTx(reg.address, reg.abi, 'mintItem', [to, uri]);
-  if ('txHash' in r) recordEvent('ItemMintedOnChain', { to, uri, registry: reg.address }, r.txHash);
+  if ('txHash' in r) recordEvent('ItemMintedOnChain', { to, registry: reg.address }, r.txHash);
   return { ...r, registry: reg.address, explorer: 'txHash' in r ? `${ACTIVE.explorer}/tx/${r.txHash}` : undefined };
+}
+
+/** 后台轮询回执，解析 ItemMinted 事件回填链上 tokenId（fire-and-forget） */
+export function watchItemTokenId(txHash: string, cb: (tokenId: number) => void) {
+  if (CHAIN_MODE !== 'live' || !provider) return;
+  const reg = loadRegistry();
+  if (!reg) return;
+  const iface = new ethers.Interface(reg.abi);
+  (async () => {
+    for (let i = 0; i < 60; i++) {
+      const rc = await provider!.getTransactionReceipt(txHash).catch(() => null);
+      if (rc) {
+        if (rc.status !== 1) return;
+        for (const log of rc.logs || []) {
+          try {
+            const p = iface.parseLog(log);
+            if (p?.name === 'ItemMinted') { cb(Number(p.args.tokenId)); return; }
+          } catch {}
+        }
+        return;
+      }
+      await new Promise((r) => setTimeout(r, 3000));
+    }
+  })().catch(() => {});
 }
 
 /** 比赛结果真实锚链（BlameAnchor.anchorMatch），限频省 gas */

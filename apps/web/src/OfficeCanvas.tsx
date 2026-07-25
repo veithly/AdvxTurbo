@@ -51,6 +51,14 @@ const ZONE_FURNITURE: Record<string, string[]> = {
 const ROLE_POOL = ['engineer', 'pm', 'qa', 'sre', 'designer', 'intern'];
 function hashId(id: string): number { let h = 0; for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0; return h; }
 
+// AI 工作人员形象：按 id 确定性分配不同物种/毛色，统一红马甲制服保持辨识度（别全是同一只斗牛犬）
+const STAFF_SPECIES = ['bulldog', 'raccoon', 'goose', 'capybara', 'shiba'];
+const STAFF_FUR = ['#B18A68', '#8B929B', '#F7F2E8', '#A66F45', '#E99B37', '#C98B57'];
+function staffSpec(id: string) {
+  const h = hashId(id);
+  return { species: STAFF_SPECIES[h % STAFF_SPECIES.length], fur: STAFF_FUR[(h >> 3) % STAFF_FUR.length], shirt: '#B3402A', accessory: 'tie' };
+}
+
 function bugProp(severity: number, status: BugStatus): string {
   if (status === 'hidden') return 'hidden_bug';
   if (severity >= 4) return 'red_bug';
@@ -67,6 +75,7 @@ export function OfficeCanvas({
   bossBubble,
   scapegoatId,
   ownIds,
+  pov = 'builder',
   height = 640,
 }: {
   frame: ReplayFrame | null;
@@ -77,6 +86,7 @@ export function OfficeCanvas({
   bossBubble?: string;
   scapegoatId?: string;
   ownIds?: Set<string>;
+  pov?: 'builder' | 'staff'; // 观看视角：选手（默认）/ 工作人员（志愿者出战时）
   height?: number;
 }) {
   const ref = useRef<HTMLCanvasElement>(null);
@@ -214,27 +224,78 @@ export function OfficeCanvas({
       ctx.textAlign = 'left';
     }
 
-    // 热点覆盖范围（工作人员只知“这一带有热点”，不知道具体是谁）：开热点处一圈信号
+    // 视角与迷雾：
+    // - 选手视角：远处的工作人员隐藏（只知道“附近有工作人员”）
+    // - 工作人员视角：工作人员全部可见；选手都能看到但只感知附近的热点信号（不知道远处谁在开热点）
+    const staffPov = pov === 'staff';
+    const STAFF_FOG = 4; // 曼哈顿距离 ≤ 4 才能看见对面阵营的信息
+    const staffPts = frame.workers.filter((w) => w.label === 'staff').map((w) => w.pos);
+    const nearStaff = (pos: [number, number]) => staffPts.some((p) => Math.abs(p[0] - pos[0]) + Math.abs(p[1] - pos[1]) <= STAFF_FOG);
+
+    // 热点覆盖范围：开热点处一圈信号（工作人员视角下只显示巡逻范围内的信号）
     for (const w of frame.workers) {
       if (w.label !== 'building' && w.label !== 'hotspot') continue;
+      if (staffPov && !nearStaff(w.pos)) continue; // 工作人员只感知附近的信号
       const cx = w.pos[0] * ts + ts / 2, cy = w.pos[1] * ts + ts / 2, rr = ts * 2.2;
       const g = ctx.createRadialGradient(cx, cy, ts * 0.3, cx, cy, rr);
       g.addColorStop(0, 'rgba(245,197,66,0.26)'); g.addColorStop(1, 'rgba(245,197,66,0)');
       ctx.fillStyle = g; ctx.beginPath(); ctx.arc(cx, cy, rr, 0, Math.PI * 2); ctx.fill();
     }
 
-    // 角色渲染（工作人员靠近时才可见）
+    // 角色渲染
     const roleFor = (w: { id: string; label: string }) => roles[w.id] || (w.label === 'staff' ? 'boss' : ROLE_POOL[hashId(w.id) % 6]);
     const builderPts = frame.workers.filter((w) => w.label !== 'staff' && w.label !== 'dq').map((w) => w.pos);
-    const STAFF_FOG = 4; // 工作人员与选手曼哈顿距离 ≤ 4 时才显示位置
     const staffVisible = (pos: [number, number]) => builderPts.some((p) => Math.abs(p[0] - pos[0]) + Math.abs(p[1] - pos[1]) <= STAFF_FOG);
+    // 药丸标签：居中深底描边（选手 build/灵感 与 工作人员抓捕数共用）
+    const pillAt = (text: string, color: string, cxc: number, cy: number) => {
+      ctx.font = 'bold 11px "DotGothic16", monospace';
+      ctx.textBaseline = 'middle';
+      const tw = ctx.measureText(text).width;
+      const padX = 4, ph = 14, pw = tw + padX * 2;
+      const pxL = cxc - pw / 2;
+      ctx.fillStyle = 'rgba(10,11,15,0.92)';
+      ctx.fillRect(pxL, cy - ph / 2, pw, ph);
+      ctx.strokeStyle = color; ctx.lineWidth = 1;
+      ctx.strokeRect(pxL, cy - ph / 2, pw, ph);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = color;
+      ctx.fillText(text, pxL + padX, cy + 1);
+      ctx.textBaseline = 'top';
+    };
+    // 精力血条（选手与工作人员共用）
+    const energyBar = (pxb: number, pyb: number, energy: number) => {
+      const bw = ts - 8, bx = pxb + 4, yy = pyb - 22;
+      ctx.fillStyle = 'rgba(10,11,15,0.85)'; ctx.fillRect(bx - 1, yy - 1, bw + 2, 4);
+      ctx.fillStyle = '#E8BE49'; ctx.fillRect(bx, yy, Math.max(0, Math.min(1, energy / 100)) * bw, 2);
+    };
+    // 角色名字标签：脚下居中深底描边，便于在背景上阅读
+    const nameTag = (name: string, cxc: number, cy: number, staff = false) => {
+      if (!name) return;
+      ctx.font = 'bold 10px "DotGothic16", monospace';
+      ctx.textBaseline = 'middle';
+      let label = name;
+      let tw = ctx.measureText(label).width;
+      const maxW = ts * 2.6;
+      while (tw > maxW && label.length > 1) { label = label.slice(0, -1); tw = ctx.measureText(label + '…').width; }
+      if (label !== name) label += '…';
+      const padX = 4, ph = 13, pw = tw + padX * 2;
+      const pxL = Math.max(2, Math.min(W - pw - 2, cxc - pw / 2));
+      ctx.fillStyle = 'rgba(10,11,15,0.9)';
+      ctx.fillRect(pxL, cy - ph / 2, pw, ph);
+      ctx.textAlign = 'left';
+      ctx.fillStyle = staff ? '#F5C542' : '#E8F0F5';
+      ctx.fillText(label, pxL + padX, cy + 1);
+      ctx.textBaseline = 'top';
+      ctx.textAlign = 'left';
+    };
     // 精灵 + 状态
     for (const w of frame.workers) {
       const isStaff = w.label === 'staff';
-      if (isStaff && !staffVisible(w.pos)) continue; // 迷雾：远处的工作人员隐藏
+      if (isStaff && !staffPov && !staffVisible(w.pos)) continue; // 选手视角迷雾：远处的工作人员隐藏
       const px = w.pos[0] * ts, py = w.pos[1] * ts;
       const dq = w.label === 'dq';
-      const sprite = characterCanvas(roleFor(w), specs?.[w.id]); // 工作人员若有志愿者 spec 也生效（志愿者到场执勤）
+      // 工作人员：有自定义 spec（志愿者）则用之，否则按 id 变出不同形象的 AI 工作人员
+      const sprite = characterCanvas(roleFor(w), specs?.[w.id] ?? (isStaff ? staffSpec(w.id) : undefined));
       ctx.fillStyle = 'rgba(0,0,0,0.3)'; ctx.fillRect(px + 3, py + ts - 3, ts - 6, 3);
       const sw = isStaff ? ts * 1.3 : ts * 1.15, sh = isStaff ? ts * 1.6 : ts * 1.4;
       if (dq) ctx.globalAlpha = 0.45;
@@ -243,6 +304,10 @@ export function OfficeCanvas({
       if (isStaff) {
         ctx.font = 'bold 12px "DotGothic16", monospace'; ctx.fillStyle = '#e85838';
         ctx.fillText('🦺', px + ts * 0.28, py - ts * 0.42);
+        // 工作人员没有 build/灵感：只显示精力条（影响巡逻速度/传送）+ 抓捕数
+        energyBar(px, py, w.energy);
+        pillAt('🚨' + Math.round(w.contribution), '#F09090', px + ts / 2, py - 32);
+        ctx.textAlign = 'left';
       } else if (dq) {
         ctx.strokeStyle = '#e85838'; ctx.lineWidth = 4;
         ctx.beginPath();
@@ -250,24 +315,27 @@ export function OfficeCanvas({
         ctx.moveTo(px + ts - 2, py - ts * 0.3); ctx.lineTo(px + 2, py + ts * 0.7);
         ctx.stroke();
       } else {
-        // 头顶三条状态：build(青) / 精力(黄) / 灵感(紫)
-        const bw = ts - 8, bx = px + 4;
-        const insp = (w as any).inspiration || 0;
-        const rows: Array<[number, string]> = [[w.contribution, '#5AD2E6'], [w.energy, '#E8BE49'], [insp, '#A36ECE']];
-        rows.forEach((r, ri) => {
-          const yy = py - 24 + ri * 4;
-          ctx.fillStyle = 'rgba(10,11,15,0.85)'; ctx.fillRect(bx - 1, yy - 1, bw + 2, 4);
-          ctx.fillStyle = r[1]; ctx.fillRect(bx, yy, Math.max(0, Math.min(1, r[0] / 100)) * bw, 2);
-        });
+        // 头顶：精力用血条(0..100)；build/灵感各占一行、以角色为中心的深色药丸，互不重合
+        const insp = Math.round((w as any).inspiration || 0);
+        energyBar(px, py, w.energy);
+        const cx = px + ts / 2;
+        pillAt('🔨' + Math.round(w.contribution), '#7EE0F0', cx, py - 42);
+        pillAt('💡' + insp, '#C79BEA', cx, py - 30);
+        ctx.textAlign = 'left';
         if (scapegoatId === w.id) { ctx.font = '16px "DotGothic16", monospace'; ctx.fillText('🎯', px - 4, py + ts * 0.1); }
-        // 开热点标识（观众可见）
-        if (w.label === 'building' || w.label === 'hotspot') { ctx.font = 'bold 13px "DotGothic16", monospace'; ctx.textAlign = 'center'; ctx.fillText('📶', px + ts / 2, py - 30); ctx.textAlign = 'left'; }
-        // 圈出自己的角色
-        if (ownIds && ownIds.has(w.id)) {
-          ctx.strokeStyle = '#68B35D'; ctx.lineWidth = 2.5;
-          ctx.beginPath(); ctx.ellipse(px + ts / 2, py + ts * 0.9, ts * 0.52, ts * 0.24, 0, 0, Math.PI * 2); ctx.stroke();
-          ctx.fillStyle = '#68B35D'; ctx.font = 'bold 10px "DotGothic16", monospace'; ctx.textAlign = 'center'; ctx.fillText('YOU', px + ts / 2, py + ts * 1.2); ctx.textAlign = 'left';
-        }
+        // 开热点标识（工作人员视角下只有靠近才看得到）
+        if ((w.label === 'building' || w.label === 'hotspot') && (!staffPov || nearStaff(w.pos))) { ctx.font = 'bold 13px "DotGothic16", monospace'; ctx.textAlign = 'center'; ctx.fillText('📶', px + ts / 2, py - 56); ctx.textAlign = 'left'; }
+      }
+      // 圈出自己的角色（选手与志愿者工作人员都适用）
+      if (!dq && ownIds && ownIds.has(w.id)) {
+        ctx.strokeStyle = '#68B35D'; ctx.lineWidth = 2.5;
+        ctx.beginPath(); ctx.ellipse(px + ts / 2, py + ts * 0.9, ts * 0.52, ts * 0.24, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.fillStyle = '#68B35D'; ctx.font = 'bold 10px "DotGothic16", monospace'; ctx.textAlign = 'center'; ctx.fillText('YOU', px + ts / 2, py + ts * 1.2); ctx.textAlign = 'left';
+      }
+      // 角色名字：画在脚下（自己的角色下移，避开 YOU 标记）
+      if (!dq) {
+        const own = !!(ownIds && ownIds.has(w.id));
+        nameTag(names?.[w.id] || '', px + ts / 2, py + ts * (own ? 1.5 : 1.15), isStaff);
       }
       const text = bubbles?.[w.id];
       if (text) bubbleQueue.push({ cx: px + ts / 2, baseY: py - ts * 0.5, text, boss: isStaff });
@@ -287,7 +355,7 @@ export function OfficeCanvas({
 
     // 统一绘制气泡（浮在最上层）
     for (const b of bubbleQueue) drawBubble(b.cx, b.baseY, b.text, b.boss);
-  }, [frame, roles, names, specs, bubbles, bossBubble, scapegoatId, ownIds, t, setBgTick]);
+  }, [frame, roles, names, specs, bubbles, bossBubble, scapegoatId, ownIds, pov, t, setBgTick]);
 
   return <canvas ref={ref} className="office-stage" width={MAP_WIDTH * 48} height={height} style={{ aspectRatio: `${MAP_WIDTH * 48} / ${height}` }} />;
 }

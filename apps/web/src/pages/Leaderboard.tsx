@@ -6,11 +6,11 @@ import { Avatar, Loading, avatarFromWorker } from '../ui.js';
 import { ProviderLogo } from '../ProviderLogo.js';
 import { sfx } from '../audio.js';
 
-type Kind = 'rating' | 'meme' | 'stable';
+type Kind = 'rating' | 'meme' | 'stable' | 'catch';
 const MEDAL = ['🥇', '🥈', '🥉'];
 
 function winRate(row: any): number {
-  return Math.round((row.project_successes / (row.games || 1)) * 100);
+  return Math.round((row.wins / (row.games || 1)) * 100);
 }
 
 export function Leaderboard() {
@@ -24,7 +24,7 @@ export function Leaderboard() {
     api.get('/api/leaderboards?kind=' + kind).then(setRows).catch(() => setRows([]));
   }, [kind]);
 
-  const tabs: Kind[] = ['rating', 'meme', 'stable'];
+  const tabs: Kind[] = ['rating', 'meme', 'stable', 'catch'];
   const podium = (rows || []).slice(0, 3);
 
   return (
@@ -66,6 +66,38 @@ export function Leaderboard() {
           )}
 
           <div className="card tbl-wrap">
+            {kind === 'catch' ? (
+              /* 抓捕榜：志愿者工作人员按累计抓捕数排序 */
+              <table className="tbl lb">
+                <thead>
+                  <tr>
+                    <th>#</th>
+                    <th></th>
+                    <th>{t('leaderboard.owner')}</th>
+                    <th>{t('leaderboard.provider')}</th>
+                    <th>🚨 {t('leaderboard.catches')}</th>
+                    <th>🦺 {t('leaderboard.patrols')}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {rows.map((row, i) => (
+                    <tr key={row.id} className={i < 3 ? 'top' : ''}>
+                      <td style={{ fontWeight: 700 }}>{i < 3 ? MEDAL[i] : i + 1}</td>
+                      <td>
+                        <span className="row" style={{ margin: 0 }}>
+                          <Avatar role={row.role} spec={avatarFromWorker(row)} size={32} />
+                          <span className="small" style={{ color: 'var(--cream)' }}>🦺 {row.name}</span>
+                        </span>
+                      </td>
+                      <td className="small muted">{row.owner}</td>
+                      <td><ProviderLogo id={row.agent_tool} size={22} showName /></td>
+                      <td style={{ fontWeight: 700, color: 'var(--red2)' }}>{row.catches_sum || 0}</td>
+                      <td>{row.patrols || 0}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            ) : (
             <table className="tbl lb">
               <thead>
                 <tr>
@@ -75,7 +107,7 @@ export function Leaderboard() {
                   <th>{t('leaderboard.provider')}</th>
                   <th>{t('common.rating')}</th>
                   <th>{t('office.games')}</th>
-                  <th>{t('leaderboard.successRate')}</th>
+                  <th>{t('leaderboard.winRate')}</th>
                   <th>{t('leaderboard.streak')}</th>
                   <th></th>
                 </tr>
@@ -101,6 +133,7 @@ export function Leaderboard() {
                 ))}
               </tbody>
             </table>
+            )}
           </div>
         </>
       )}

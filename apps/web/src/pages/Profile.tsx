@@ -3,17 +3,19 @@ import { useNavigate, Link } from 'react-router-dom';
 import { useT, useI18n } from '../i18n/index.js';
 import { api } from '../api.js';
 import { useAuth } from '../store.js';
-import { Avatar, Loading, useToast } from '../ui.js';
+import { Avatar, Loading, useToast, shortAddr } from '../ui.js';
 import { sfx } from '../audio.js';
 
 export function Profile() {
   const t = useT();
   const nav = useNavigate();
   const { locale, setLocale } = useI18n();
-  const { user, logout } = useAuth();
+  const { user, logout, walletMeta } = useAuth();
   const toast = useToast();
   const [workers, setWorkers] = useState<any[] | null>(null);
   const [claims, setClaims] = useState<any[] | null>(null);
+  const [privKey, setPrivKey] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -25,6 +27,28 @@ export function Profile() {
     sfx('click', 0.3);
     setLocale(l);
     api.post('/api/auth/locale', { locale: l }).catch(() => {});
+  }
+
+  async function exportKey() {
+    sfx('click', 0.3);
+    if (privKey) { setPrivKey(null); return; }
+    setExporting(true);
+    try {
+      const { privateKey } = await api.post('/api/wallet/custodial/export');
+      setPrivKey(privateKey);
+    } catch {
+      toast.show(t('common.error', 'Error'), 'err');
+    } finally {
+      setExporting(false);
+    }
+  }
+
+  async function copyKey() {
+    if (!privKey) return;
+    try {
+      await navigator.clipboard.writeText(privKey);
+      toast.show(t('profile.copied'), 'ok');
+    } catch {}
   }
 
   if (!user) {
@@ -50,6 +74,28 @@ export function Profile() {
           <button className={'btn sm ' + (locale === 'en' ? 'primary' : '')} onClick={() => changeLocale('en')}>EN</button>
         </div>
       </div>
+
+      {walletMeta?.custodial && (
+        <div className="card">
+          <h3>👛 {t('profile.wallet')}</h3>
+          <p className="small muted">{t('profile.walletHint')}</p>
+          <div className="row" style={{ marginTop: 8 }}>
+            <code className="small">{shortAddr(walletMeta.address)}</code>
+            <button className="btn sm" onClick={exportKey} disabled={exporting}>
+              {exporting ? '…' : privKey ? t('profile.hideKey') : t('profile.exportKey')}
+            </button>
+          </div>
+          {privKey && (
+            <div style={{ marginTop: 10 }}>
+              <p className="small" style={{ color: 'var(--red, #e66)' }}>{t('profile.exportWarn')}</p>
+              <div className="row" style={{ alignItems: 'stretch' }}>
+                <code className="small" style={{ wordBreak: 'break-all', flex: 1, padding: 8, background: 'rgba(0,0,0,.25)', borderRadius: 6 }}>{privKey}</code>
+                <button className="btn sm" onClick={copyKey}>{t('profile.copy')}</button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <div className="card">
         <h3>{t('profile.workers')}</h3>

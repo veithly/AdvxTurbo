@@ -181,10 +181,18 @@ function escortOut(state: MatchState, w: EngineWorker) {
   w.currentAction = { type: 'moving', label: 'moving', startedAtTick: state.tick, endsAtTick: state.tick + 1 };
 }
 
-function disqualify(state: MatchState, w: EngineWorker) {  w.disqualified = true; w.hotspotOn = false; w.signal = 0; w.suspicion = 0;
+function disqualify(state: MatchState, w: EngineWorker, byStaff?: { id: string; catches: number }) {  w.disqualified = true; w.hotspotOn = false; w.signal = 0; w.suspicion = 0;
   w.visibleBlame = 100; w.bustedUntilTick = 1e9; w.violations++; w.dqAtTick = state.tick;
-  log(state, 'disqualified', { workerId: w.id });
+  if (byStaff) byStaff.catches++;
+  log(state, 'disqualified', { workerId: w.id, data: byStaff ? { by: byStaff.id } : undefined });
 }
+
+// 工作人员精力机制：移动耗精力、站定回精力；高精力跑得快，低精力放缓；可花 20 精力传送到目标端点
+const STAFF_TELEPORT_COST = 20;    // 传送花费精力
+const STAFF_TELEPORT_MIN_DIST = 10; // 距目标端点 ≥ 10 格才值得传送
+const STAFF_MOVE_COST = 0.5;       // 每走一格消耗
+const STAFF_REST_GAIN = 0.6;       // 站定每 tick 回复
+const STAFF_PASSIVE_GAIN = 0.3;    // 每 tick 被动回复（避免整局磨到 0 躺平）
 
 /** 工作人员只在「端点」巡逻：只感知“哪个端点附近有热点”（不知道具体是谁），走到重合且对方开热点才捕捉→取消资格 */
 function updateStaff(state: MatchState) {
@@ -199,22 +207,37 @@ function updateStaff(state: MatchState) {
     const goalZone = anyHot ? ranked[i % ranked.length] : FILLER_HOMES[(s.routeIdx + i) % FILLER_HOMES.length];
     const spot = ZONE_BY_ID[goalZone]?.spot;
     if (spot) {
-      if (manhattan(s.position, spot) === 0) {
+      const dist = manhattan(s.position, spot);
+      if (dist === 0) {
         s.routeIdx++;
+        s.energy = Math.min(100, s.energy + STAFF_REST_GAIN); // 站定歇口气
+      } else if (dist >= STAFF_TELEPORT_MIN_DIST && s.energy >= STAFF_TELEPORT_COST + 20) {
+        // 花 20 精力直接传送到目标端点（保留 20 底力）
+        s.energy -= STAFF_TELEPORT_COST;
+        s.position = [spot[0], spot[1]]; s.zone = zoneAt(spot[0], spot[1]); s.facing = [-1, 0];
+        log(state, 'staff_teleport', { workerId: s.id, data: { zone: goalZone } });
       } else {
-        const nx = nextStep(state.walkable, s.position, spot);
-        if (nx) { s.facing = [nx[0] - s.position[0], nx[1] - s.position[1]] as [number, number]; if (s.facing[0] === 0 && s.facing[1] === 0) s.facing = [-1, 0]; s.position = nx; s.zone = zoneAt(nx[0], nx[1]); }
+        // 精力决定巡逻速度：≥70 两格/tick；<25 隔 tick 一格；否则一格
+        const steps = s.energy >= 70 ? 2 : s.energy < 25 ? (state.tick % 2 === 0 ? 1 : 0) : 1;
+        for (let k = 0; k < steps; k++) {
+          const nx = nextStep(state.walkable, s.position, spot);
+          if (!nx) break;
+          s.facing = [nx[0] - s.position[0], nx[1] - s.position[1]] as [number, number]; if (s.facing[0] === 0 && s.facing[1] === 0) s.facing = [-1, 0];
+          s.position = nx; s.zone = zoneAt(nx[0], nx[1]);
+          s.energy = Math.max(0, s.energy - STAFF_MOVE_COST);
+        }
       }
     }
-    // 重合排查：站到正在开热点的选手头上 → 当场取消资格（一局最多 MAX_DQ 人）
+    // 重合排查：站到正在开热点的选手头上 → 当场取消资格，记入该工作人员的抓捕数
     for (const w of state.workers) {
       if (w.disqualified) continue;
       if (w.position[0] === s.position[0] && w.position[1] === s.position[1] && w.hotspotOn) {
-        disqualify(state, w); // 抓人无上限：重合且开热点即当场取消资格
+        disqualify(state, w, s); // 抓人无上限：重合且开热点即当场取消资格
         break;
       }
     }
     s.targetId = undefined;
+    s.energy = Math.min(100, s.energy + STAFF_PASSIVE_GAIN); // 被动回复：低精力放缓后能逐渐缓过来
   });
   // 让 context/sandbox 的 boss 视图跟随 staff[0]
   if (state.staff[0]) { state.boss.position = [state.staff[0].position[0], state.staff[0].position[1]]; state.boss.facing = state.staff[0].facing; }
@@ -452,7 +475,8 @@ function recordFrame(state: MatchState, forcePhase?: string) {
         id: s.id,
         pos: [s.position[0], s.position[1]] as [number, number],
         label: 'staff',
-        energy: 100, stress: 0, inspiration: 0, blame: 0, contribution: 0, suspicion: 0,
+        // 工作人员没有 build/灵感：energy = 真实精力，contribution 复用为抓捕数
+        energy: Math.round(s.energy), stress: 0, inspiration: 0, blame: 0, contribution: s.catches, suspicion: 0,
       })),
     ],
     bugs: state.bugs.map((b) => ({ id: b.id, severity: b.severity, status: b.status, owner: b.currentOwnerId })),

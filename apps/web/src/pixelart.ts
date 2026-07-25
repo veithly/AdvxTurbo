@@ -185,7 +185,14 @@ export function drawCharacter(r: R, c: CharSpec) {
   else if (acc === 'wrench') { r.line([33, 22, 40, 35], '#888', 3); px(r, 31, 20, 5, 4, P.o); }
   else if (acc === 'coffee') { box(r, 32, 26, 9, 8, P.w); px(r, 41, 28, 3, 4, P.o); px(r, 33, 24, 2, 2, '#00000033'); px(r, 37, 23, 2, 3, '#00000033'); }
   else if (acc === 'backpack') { box(r, 35, 22, 9, 15, P.b); px(r, 36, 24, 7, 2, P.y); px(r, 38, 28, 4, 5, shade('#3498DB', -40)); }
-  else if (acc === 'tie') { px(r, 23, 22, 4, 8, P.r); r.line([23, 30, 25, 34, 27, 30], P.r, 2); }
+  else if (acc === 'tie') {
+    // 领带挂在胸口：按物种下颌底部定位（鹅头在顶部/其余头部到 y27~29），别糊在嘴上
+    const ty = s === 'goose' ? 24 : (s === 'cat' || s === 'shiba' || s === 'raccoon') ? 28 : 29;
+    const tipY = Math.min(ty + 9, 37);
+    px(r, 22, ty, 6, 2, shade(P.r, -36));               // 领结
+    px(r, 23, ty + 2, 4, 5, P.r);                       // 带身
+    r.line([23, ty + 6, 25, tipY, 27, ty + 6], P.r, 2); // 尖端
+  }
 }
 
 export function drawProp(r: R, n: string) {

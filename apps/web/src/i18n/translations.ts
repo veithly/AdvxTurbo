@@ -84,7 +84,7 @@ export const zh: Dict = {
 
   'office.myCompany': '我的战队', 'office.employees': '选手', 'office.workerKey': 'Worker Key',
   'office.currentStrategy': '当前策略', 'office.recentMatches': '最近比赛', 'office.projectSuccessRate': '项目成功率',
-  'office.avgBlame': '平均背锅值', 'office.games': '总场次', 'office.startRanked': '开始排位', 'office.team': '出战队伍', 'office.teamCount': '人队', 'office.toggleTeam': '加入/移出出战队伍',
+  'office.avgBlame': '平均背锅值', 'office.winRate': '胜率', 'office.avgContribution': '平均贡献', 'office.games': '总场次', 'office.startRanked': '开始排位', 'office.team': '出战队伍', 'office.teamCount': '人队', 'office.toggleTeam': '加入/移出出战队伍', 'office.volToggle': '以工作人员视角出战（上岗巡逻执勤）',
   'office.publicChallenge': '接受公开挑战', 'office.branches': '分支', 'office.createFirst': '创建你的第一位 AI 选手',
   'office.regenKey': '重置 Key', 'office.newKey': '生成新 Key', 'office.keyWarning': '这是控制该选手的唯一凭证，请妥善保管，不要泄露给他人。',
   'office.keyOnce': '明文只显示一次，请立即复制。', 'office.prompt': '标准 Prompt',
@@ -112,7 +112,7 @@ export const zh: Dict = {
 
   'replay.title': '比赛回放', 'replay.timeline': '事故时间线', 'replay.responsibility': '责任图', 'replay.metrics': '详细数据',
   'replay.scapegoat': '最终背锅者', 'replay.champion': '本局冠军', 'replay.memeHeat': 'Meme 热度', 'replay.speed': '速度', 'replay.play': '播放',
-  'settle.title': '🏁 赛事结算', 'settle.bestBuilder': '最佳 Builder', 'settle.dqList': '被取消参赛资格', 'settle.dqCount': '共 {n} 人被工作人员带走', 'settle.dqNone': '本局无人被取消资格 🎉', 'settle.buildScore': 'build 值', 'settle.viewReplay': '看回放', 'settle.leaderboard': '去排行榜', 'settle.finalProgress': '项目进度', 'settle.subtitle': '评委已打分，结果如下',
+  'settle.title': '🏁 赛事结算', 'settle.bestBuilder': '最佳 Builder', 'settle.dqList': '被取消参赛资格', 'settle.dqCount': '共 {n} 人被工作人员带走', 'settle.dqNone': '本局无人被取消资格 🎉', 'settle.buildScore': 'build 值', 'settle.viewReplay': '看回放', 'settle.leaderboard': '去排行榜', 'settle.finalProgress': '项目进度', 'settle.subtitle': '评委已打分，结果如下', 'settle.rankScore': '排位分',
   'replay.pause': '暂停', 'replay.progress': '项目进度', 'replay.stability': '系统稳定性', 'replay.blame': '背锅值', 'hud.buildingNow': '正在 build', 'hud.build': 'build 值', 'hud.inspiration': '灵感',
   'replay.contribution': '贡献', 'replay.energy': '精力', 'replay.copyAgent': '交给 Agent 复盘', 'replay.proof': '链上验证',
   'replay.verified': '已验证', 'replay.reason': '背锅原因', 'replay.highlight': '生成高光',
@@ -132,6 +132,9 @@ export const zh: Dict = {
   'store.cosmetic': '装饰', 'store.onchain': '链上', 'store.offchain': '链下',
 
   'profile.title': '我的', 'profile.locale': '语言', 'profile.workers': '我的选手', 'profile.claims': '奖励记录',
+  'profile.wallet': '内置钱包', 'profile.walletHint': '这是系统为你托管的 EVM 钱包，可导出私钥后导入 MetaMask 等钱包自行保管。',
+  'profile.exportKey': '导出私钥', 'profile.exportWarn': '⚠️ 私钥等同于账户所有权，切勿泄露给任何人。请复制后妥善离线保存。',
+  'profile.copy': '复制', 'profile.copied': '已复制', 'profile.hideKey': '隐藏',
 
   'tour.title': '杯赛', 'tour.create': '创建杯赛', 'tour.prizePool': '奖池', 'tour.status': '状态', 'tour.enter': '报名',
   'tour.run': '开赛', 'tour.entries': '参赛者', 'tour.rules': '规则哈希', 'tour.payouts': '奖金分配',
@@ -141,8 +144,16 @@ export const zh: Dict = {
 
   'docs.title': 'Agent 开发指南', 'docs.copyPrompt': '复制标准 Prompt', 'docs.apiBase': 'API Base',
   'docs.endpoints': '接口总表', 'docs.runtime': '运行时对象', 'docs.actions': '动作 API',
-  'leaderboard.rating': '排位榜', 'leaderboard.meme': 'Meme 榜', 'leaderboard.stable': '稳定榜',
-  'leaderboard.owner': '所属公司', 'leaderboard.successRate': '成功率',
+  'docs.guideTitle': 'Advx 极速版 / ADVX TURBO — Agent Guide', 'docs.sandbox': '沙盒',
+  'docs.copyFull': '复制整份指南（喂给 Agent）', 'docs.copiedFull': '📖 整份指南已复制，直接喂给你的 Agent',
+  'docs.secAuth': '认证', 'docs.secWorkflow': '核心工作流', 'docs.secRuntime': '策略运行时（沙盒契约）',
+  'docs.secContext': '可读数据完整参考', 'docs.secZones': '区域表（zone id → 会场设施）',
+  'docs.secMechanics': '游戏机制（数值都在这，别猜）', 'docs.secStaff': '志愿者（工作人员）≠ 选手：巡逻/抓捕/传送', 'docs.secPitfalls': '常见坑',
+  'docs.secPlaybooks': '策略配方（不只 Build）', 'docs.secApi': 'API 参考', 'docs.secErrors': '错误与限额',
+  'docs.secBehavior': '好 Agent 的行为准则', 'docs.secPrompt': '标准 Prompt',
+  'docs.thZoneId': 'zone id', 'docs.thZoneName': '名称', 'docs.thZoneRole': '作用',
+  'leaderboard.rating': '排位榜', 'leaderboard.meme': 'Meme 榜', 'leaderboard.stable': '稳定榜', 'leaderboard.catch': '🦺 抓捕榜', 'leaderboard.catches': '抓捕数', 'leaderboard.patrols': '执勤场次',
+  'leaderboard.owner': '所属公司', 'leaderboard.successRate': '成功率', 'leaderboard.winRate': '胜率',
 
   'mode.ranked': '标准排位', 'mode.ranked.desc': '在端点偷开热点 build，把项目冲到 100% 冲榜',
   'mode.credit_war': '抢功之王', 'mode.credit_war.desc': '谁的可见贡献最高谁赢，抢功正当合理',
@@ -184,9 +195,9 @@ export const zh: Dict = {
   'chain.realTx': '真实链上交易', 'chain.walletTx': '用钱包发送真实交易', 'chain.connectFirst': '请先连接钱包并切到 Injective 1439', 'chain.anchored': '已上链', 'chain.viewTx': '查看交易', 'chain.onchainHistory': '钱包上链记录',
 
   'leaderboard.provider': 'Agent', 'leaderboard.streak': '连胜', 'leaderboard.challenge': '挑战', 'leaderboard.climb': '冲榜赛季进行中', 'leaderboard.sub': '用你的 AI 选手爬到榜首 —— 胜场越多、连胜越高，rating 越高', 'leaderboard.peak': '历史最高分',
-  'obj.goal': '本局目标：在端点偷开热点 build 出项目冲奖（别被工作人员逮到）', 'obj.progress': '发布进度 100%', 'obj.stability': '稳定性 ≥ 40', 'obj.shipped': '有人成功上线', 'obj.noP0': '无 P0 事故爆炸', 'obj.champRule': '本模式冠军规则', 'obj.safest': '领先', 'obj.risk': '垫底',
+  'obj.goal': '本局目标：在端点偷开热点 build 出项目冲奖（别被工作人员逮到）', 'obj.goalStaff': '本局目标：你在执勤！巡逻端点，逮住偷开热点的选手（重合即取消资格）', 'match.staffPov': '工作人员视角', 'common.staff': '工作人员', 'settle.bestStaff': '抓捕之星', 'hud.catches': '抓捕', 'obj.progress': '发布进度 100%', 'obj.stability': '稳定性 ≥ 40', 'obj.shipped': '有人成功上线', 'obj.noP0': '无 P0 事故爆炸', 'obj.champRule': '本模式冠军规则', 'obj.safest': '领先', 'obj.risk': '垫底',
   'commentary.title': '实时解说', 'commentary.start': '比赛开始！看谁在端点偷偷开热点 build，谁被工作人员逮到取消参赛资格…',
-  'cm.bugSpawn': '现场冒出一个新状况', 'cm.explode': '全场断网了！一片哀号', 'cm.fixed': '有人把现场状况解决了', 'cm.shipped': '有人提交了项目！', 'cm.caught': '工作人员逮到 {who} 在偷开热点！', 'cm.dq': '{who} 被工作人员当场逮住，取消参赛资格！', 'cm.forceAssign': '{who} 抢占了别人的端点', 'cm.incident': '全场进入赶 DDL 冲刺！', 'cm.rollback': '{who} 回滚了一版', 'cm.matchEnd': '比赛结束，评委开始打分',
+  'cm.bugSpawn': '现场冒出一个新状况', 'cm.teleport': '{who} 花 20 精力瞬移到新端点巡逻！', 'cm.explode': '全场断网了！一片哀号', 'cm.fixed': '有人把现场状况解决了', 'cm.shipped': '有人提交了项目！', 'cm.caught': '工作人员逮到 {who} 在偷开热点！', 'cm.dq': '{who} 被工作人员当场逮住，取消参赛资格！', 'cm.forceAssign': '{who} 抢占了别人的端点', 'cm.incident': '全场进入赶 DDL 冲刺！', 'cm.rollback': '{who} 回滚了一版', 'cm.matchEnd': '比赛结束，评委开始打分',
   'goal.progress': '项目进度 ≥ {n}%', 'goal.buildTeam': '同时 ≥ {n} 人在端点 build', 'goal.noDq': '无人被取消参赛资格', 'goal.submit': '项目进度冲到 100%', 'goal.done': '目标达成',
   'bubble.working': '敲代码中…', 'bubble.fixing': '修修修！', 'bubble.slacking': '摸鱼~', 'bubble.shipping': '发布！', 'bubble.meeting': '开会同步', 'bubble.idle': '……', 'bubble.walking': '溜达~', 'bubble.reviewing': '审查中', 'bubble.helping': '搭把手', 'bubble.assign': '交给你了', 'bubble.fix': '修好了！', 'bubble.ship': '上线啦🚀', 'bubble.caught': '😱被逮了', 'bubble.dump': '这锅你背！', 'bubble.rollback': '快回滚！', 'bubble.explode': '💥炸了！', 'bubble.bossPatrol': '谁在开热点？', 'bubble.bossCaught': '逮到你了！', 'bubble.building': '偷偷build🛠', 'bubble.hotspot': '开热点中📶', 'bubble.lurking': '假装路过', 'bubble.busted': '😱被逮了', 'bubble.resting': '躺蓝盒子😴', 'bubble.eating': '干饭+灵感😋', 'bubble.queuing': '排队补精力🛎', 'bubble.workshop': '搞创作💡', 'bubble.sponsor': '领道具🎁', 'bubble.moving': '溜达~', 'bubble.dq': '取消参赛资格',
   'create.agentTool': '你用的 Agent / 模型', 'create.agentToolHint': '选择你打造这名选手所用的 AI 工具，会展示在排行榜上',
@@ -275,7 +286,7 @@ export const en: Dict = {
 
   'office.myCompany': 'My Squad', 'office.employees': 'Builders', 'office.workerKey': 'Worker Key',
   'office.currentStrategy': 'Current strategy', 'office.recentMatches': 'Recent matches', 'office.projectSuccessRate': 'Project success rate',
-  'office.avgBlame': 'Avg blame', 'office.games': 'Games', 'office.startRanked': 'Start Ranked', 'office.team': 'Team', 'office.teamCount': '', 'office.toggleTeam': 'Add / remove from team',
+  'office.avgBlame': 'Avg blame', 'office.winRate': 'Win rate', 'office.avgContribution': 'Avg contribution', 'office.games': 'Games', 'office.startRanked': 'Start Ranked', 'office.team': 'Team', 'office.teamCount': '', 'office.toggleTeam': 'Add / remove from team', 'office.volToggle': 'Deploy as staff (patrol POV)',
   'office.publicChallenge': 'Accept public challenges', 'office.branches': 'Branches', 'office.createFirst': 'Create your first AI builder',
   'office.regenKey': 'Reset Key', 'office.newKey': 'Generate Key', 'office.keyWarning': 'This is the only credential controlling this worker. Keep it safe and never share it.',
   'office.keyOnce': 'The plaintext is shown once — copy it now.', 'office.prompt': 'Standard Prompt',
@@ -302,7 +313,7 @@ export const en: Dict = {
 
   'replay.title': 'Match replay', 'replay.timeline': 'Incident timeline', 'replay.responsibility': 'Responsibility graph', 'replay.metrics': 'Detailed metrics',
   'replay.scapegoat': 'Scapegoat', 'replay.champion': 'Champion', 'replay.memeHeat': 'Meme Heat', 'replay.speed': 'Speed', 'replay.play': 'Play',
-  'settle.title': '🏁 Final results', 'settle.bestBuilder': 'Best Builder', 'settle.dqList': 'Disqualified', 'settle.dqCount': '{n} builders escorted out by staff', 'settle.dqNone': 'Nobody was disqualified 🎉', 'settle.buildScore': 'build', 'settle.viewReplay': 'Watch replay', 'settle.leaderboard': 'Leaderboard', 'settle.finalProgress': 'Project progress', 'settle.subtitle': 'Judges have scored — here are the results',
+  'settle.title': '🏁 Final results', 'settle.bestBuilder': 'Best Builder', 'settle.dqList': 'Disqualified', 'settle.dqCount': '{n} builders escorted out by staff', 'settle.dqNone': 'Nobody was disqualified 🎉', 'settle.buildScore': 'build', 'settle.viewReplay': 'Watch replay', 'settle.leaderboard': 'Leaderboard', 'settle.finalProgress': 'Project progress', 'settle.subtitle': 'Judges have scored — here are the results', 'settle.rankScore': 'Rank score',
   'replay.pause': 'Pause', 'replay.progress': 'Project progress', 'replay.stability': 'Stability', 'replay.blame': 'Blame', 'hud.buildingNow': 'Building now', 'hud.build': 'build', 'hud.inspiration': 'Inspiration',
   'replay.contribution': 'Contribution', 'replay.energy': 'Energy', 'replay.copyAgent': 'Send to Agent', 'replay.proof': 'On-chain proof',
   'replay.verified': 'Verified', 'replay.reason': 'Blame reason', 'replay.highlight': 'Make highlight',
@@ -322,6 +333,9 @@ export const en: Dict = {
   'store.cosmetic': 'Cosmetic', 'store.onchain': 'On-chain', 'store.offchain': 'Off-chain',
 
   'profile.title': 'Profile', 'profile.locale': 'Language', 'profile.workers': 'My builders', 'profile.claims': 'Reward history',
+  'profile.wallet': 'Built-in wallet', 'profile.walletHint': 'A custodial EVM wallet managed for you. Export the private key to import it into MetaMask and self-custody.',
+  'profile.exportKey': 'Export private key', 'profile.exportWarn': '⚠️ The private key grants full control of this account. Never share it. Copy and store it offline safely.',
+  'profile.copy': 'Copy', 'profile.copied': 'Copied', 'profile.hideKey': 'Hide',
 
   'tour.title': 'Tournaments', 'tour.create': 'Create tournament', 'tour.prizePool': 'Prize pool', 'tour.status': 'Status', 'tour.enter': 'Enter',
   'tour.run': 'Start cup', 'tour.entries': 'Entries', 'tour.rules': 'Ruleset hash', 'tour.payouts': 'Payouts',
@@ -331,8 +345,16 @@ export const en: Dict = {
 
   'docs.title': 'Agent Developer Guide', 'docs.copyPrompt': 'Copy standard prompt', 'docs.apiBase': 'API Base',
   'docs.endpoints': 'Endpoints', 'docs.runtime': 'Runtime objects', 'docs.actions': 'Action API',
-  'leaderboard.rating': 'Rating', 'leaderboard.meme': 'Meme', 'leaderboard.stable': 'Stability',
-  'leaderboard.owner': 'Company', 'leaderboard.successRate': 'Success rate',
+  'docs.guideTitle': 'Advx Turbo / ADVX TURBO — Agent Guide', 'docs.sandbox': 'sandbox',
+  'docs.copyFull': 'Copy full guide (feed to Agent)', 'docs.copiedFull': '📖 Full guide copied — paste it straight into your Agent',
+  'docs.secAuth': 'Authentication', 'docs.secWorkflow': 'Core workflow', 'docs.secRuntime': 'Strategy runtime (sandbox contract)',
+  'docs.secContext': 'Readable data reference', 'docs.secZones': 'Zone table (zone id → venue facility)',
+  'docs.secMechanics': 'Game mechanics (all the numbers are here, don\'t guess)', 'docs.secStaff': 'Volunteers (staff) ≠ builders: patrol / catch / teleport', 'docs.secPitfalls': 'Common pitfalls',
+  'docs.secPlaybooks': 'Strategy playbooks (not just Build)', 'docs.secApi': 'API reference', 'docs.secErrors': 'Errors & limits',
+  'docs.secBehavior': 'Good-Agent code of conduct', 'docs.secPrompt': 'Standard prompt',
+  'docs.thZoneId': 'zone id', 'docs.thZoneName': 'Name', 'docs.thZoneRole': 'Role',
+  'leaderboard.rating': 'Rating', 'leaderboard.meme': 'Meme', 'leaderboard.stable': 'Stability', 'leaderboard.catch': '🦺 Catches', 'leaderboard.catches': 'Catches', 'leaderboard.patrols': 'Patrols',
+  'leaderboard.owner': 'Company', 'leaderboard.successRate': 'Success rate', 'leaderboard.winRate': 'Win rate',
 
   'mode.ranked': 'Ranked', 'mode.ranked.desc': 'Sneak-build on hotspots at endpoints, push the project to 100%',
   'mode.credit_war': 'Credit War', 'mode.credit_war.desc': 'Highest visible contribution wins — stealing credit is fair game',
@@ -374,9 +396,9 @@ export const en: Dict = {
   'chain.realTx': 'Real on-chain tx', 'chain.walletTx': 'Send real tx with wallet', 'chain.connectFirst': 'Connect wallet & switch to Injective 1439 first', 'chain.anchored': 'Anchored on-chain', 'chain.viewTx': 'View tx', 'chain.onchainHistory': 'Wallet on-chain history',
 
   'leaderboard.provider': 'Agent', 'leaderboard.streak': 'Streak', 'leaderboard.challenge': 'Challenge', 'leaderboard.climb': 'Ranked season live', 'leaderboard.sub': 'Climb to #1 with your AI worker — more wins & streaks mean higher rating', 'leaderboard.peak': 'Peak rating',
-  'obj.goal': 'Goal: sneak-build on a hotspot at an endpoint & submit — dodge the staff', 'obj.progress': 'Release 100%', 'obj.stability': 'Stability ≥ 40', 'obj.shipped': 'Someone shipped', 'obj.noP0': 'No P0 explosion', 'obj.champRule': 'Champion rule (this mode)', 'obj.safest': 'Leading', 'obj.risk': 'Trailing',
+  'obj.goal': 'Goal: sneak-build on a hotspot at an endpoint & submit — dodge the staff', 'obj.goalStaff': 'Goal: you are ON DUTY! Patrol endpoints and catch hotspot cheaters (step on them to DQ)', 'match.staffPov': 'Staff POV', 'common.staff': 'Staff', 'settle.bestStaff': 'Top catcher', 'hud.catches': 'catches', 'obj.progress': 'Release 100%', 'obj.stability': 'Stability ≥ 40', 'obj.shipped': 'Someone shipped', 'obj.noP0': 'No P0 explosion', 'obj.champRule': 'Champion rule (this mode)', 'obj.safest': 'Leading', 'obj.risk': 'Trailing',
   'commentary.title': 'Live Commentary', 'commentary.start': 'Match starts! Watch who sneak-builds on hotspots and who gets disqualified…',
-  'cm.bugSpawn': 'a new hiccup hit the venue', 'cm.explode': 'venue-wide outage! groans everywhere', 'cm.fixed': 'someone sorted out the hiccup', 'cm.shipped': 'someone submitted their project!', 'cm.caught': 'Staff busted {who} on a sneaky hotspot!', 'cm.dq': '{who} busted on hotspot — disqualified!', 'cm.forceAssign': '{who} grabbed a rival endpoint', 'cm.incident': 'Everyone sprints for the DDL!', 'cm.rollback': '{who} rolled back a version', 'cm.matchEnd': 'Match over — judges start scoring',
+  'cm.bugSpawn': 'a new hiccup hit the venue', 'cm.teleport': '{who} spent 20 energy to blink to another endpoint!', 'cm.explode': 'venue-wide outage! groans everywhere', 'cm.fixed': 'someone sorted out the hiccup', 'cm.shipped': 'someone submitted their project!', 'cm.caught': 'Staff busted {who} on a sneaky hotspot!', 'cm.dq': '{who} busted on hotspot — disqualified!', 'cm.forceAssign': '{who} grabbed a rival endpoint', 'cm.incident': 'Everyone sprints for the DDL!', 'cm.rollback': '{who} rolled back a version', 'cm.matchEnd': 'Match over — judges start scoring',
   'goal.progress': 'Project ≥ {n}%', 'goal.buildTeam': '≥ {n} building at endpoints', 'goal.noDq': 'Nobody disqualified', 'goal.submit': 'Reach 100%', 'goal.done': 'Goals met',
   'bubble.working': 'coding…', 'bubble.fixing': 'fixing!', 'bubble.slacking': 'slacking~', 'bubble.shipping': 'ship it!', 'bubble.meeting': 'in a mtg', 'bubble.idle': '…', 'bubble.walking': 'strolling~', 'bubble.reviewing': 'reviewing', 'bubble.helping': 'helping', 'bubble.assign': 'you take it', 'bubble.fix': 'fixed it!', 'bubble.ship': 'shipped🚀', 'bubble.caught': '😱busted', 'bubble.dump': 'your fault!', 'bubble.rollback': 'rollback!', 'bubble.explode': '💥boom!', 'bubble.bossPatrol': "who's on hotspot?", 'bubble.bossCaught': 'gotcha!', 'bubble.building': 'building🛠', 'bubble.hotspot': 'hotspot ON📶', 'bubble.lurking': 'just passing', 'bubble.busted': '😱busted', 'bubble.resting': 'blue-box nap😴', 'bubble.eating': 'nom + idea😋', 'bubble.queuing': 'in queue🛎', 'bubble.workshop': 'making💡', 'bubble.sponsor': 'free swag🎁', 'bubble.moving': 'strolling~', 'bubble.dq': 'DQ’d',
   'create.agentTool': 'Your Agent / model', 'create.agentToolHint': 'Pick the AI tool you built this worker with — shown on the leaderboard',

@@ -262,7 +262,7 @@ CREATE INDEX IF NOT EXISTS idx_matches_status ON matches(status);
 for (const c of ['winner_worker_id TEXT', 'mode_id TEXT']) {
   try { db.exec(`ALTER TABLE matches ADD COLUMN ${c}`); } catch {}
 }
-for (const c of ["agent_tool TEXT DEFAULT 'claude_code'", 'win_streak INTEGER DEFAULT 0', 'best_rating REAL DEFAULT 1200']) {
+for (const c of ["agent_tool TEXT DEFAULT 'claude_code'", 'win_streak INTEGER DEFAULT 0', 'best_rating REAL DEFAULT 1200', 'catches_sum INTEGER DEFAULT 0', 'patrols INTEGER DEFAULT 0']) {
   try { db.exec(`ALTER TABLE workers ADD COLUMN ${c}`); } catch {}
 }
 

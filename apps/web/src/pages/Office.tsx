@@ -5,7 +5,6 @@ import { api } from '../api.js';
 import { useAuth } from '../store.js';
 import { Avatar, Bar, useToast, useConfig, StatusTag, avatarFromWorker } from '../ui.js';
 import { sfx } from '../audio.js';
-import { STANDARD_AGENT_PROMPT } from './Docs.js';
 
 export function Office() {
   const t = useT();
@@ -21,7 +20,7 @@ export function Office() {
   const [recent, setRecent] = useState<any[]>([]);
   const [queuing, setQueuing] = useState(false);
   const [team, setTeam] = useState<string[]>([]);
-  // 志愿者（工作人员阵营）不能出战，比赛时自动到场执勤
+  // 志愿者（工作人员阵营）也可出战：服务端会把志愿者分流到工作人员席位，以工作人员视角执勤
   const isVol = (w: any) => { try { return !!JSON.parse(w.appearance_json || '{}').volunteer; } catch { return false; } };
   const toggleTeam = (id: string) => setTeam((tm) => (tm.includes(id) ? (tm.length > 1 ? tm.filter((x) => x !== id) : tm) : [...tm, id]));
 
@@ -30,8 +29,10 @@ export function Office() {
     api.get('/api/workers').then((ws) => {
       setWorkers(ws);
       if (ws[0]) selectWorker(ws[0]);
+      // 默认出战：首个选手；若只有志愿者则选志愿者（以工作人员视角开局）
       const firstBuilder = ws.find((w: any) => { try { return !JSON.parse(w.appearance_json || '{}').volunteer; } catch { return true; } });
       if (firstBuilder) setTeam([firstBuilder.id]);
+      else if (ws[0]) setTeam([ws[0].id]);
     });
   }, [user]);
 
@@ -106,7 +107,6 @@ export function Office() {
     );
   }
 
-  const prompt = STANDARD_AGENT_PROMPT;
   const activeKey = keys.find((k) => !k.revoked_at);
 
   return (
@@ -119,9 +119,7 @@ export function Office() {
       <div className="row worker-scroll" style={{ marginBottom: 16 }}>
         {workers.map((w) => (
           <div key={w.id} className={`role-pick ${sel?.id === w.id ? 'sel' : ''}`} style={{ minWidth: 110, position: 'relative', outline: team.includes(w.id) ? '2px solid var(--green)' : 'none' }} onClick={() => selectWorker(w)}>
-            {isVol(w)
-              ? <span title="志愿者不出战，比赛时自动到场执勤" style={{ position: 'absolute', top: 4, right: 4, fontSize: 14 }}>🦺</span>
-              : <button title={t('office.toggleTeam')} onClick={(e) => { e.stopPropagation(); toggleTeam(w.id); sfx('click', 0.3); }} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer', background: team.includes(w.id) ? 'var(--green)' : 'var(--gray2)', color: '#fff', fontWeight: 700 }}>{team.includes(w.id) ? '✓' : '＋'}</button>}
+            <button title={isVol(w) ? t('office.volToggle') : t('office.toggleTeam')} onClick={(e) => { e.stopPropagation(); toggleTeam(w.id); sfx('click', 0.3); }} style={{ position: 'absolute', top: 4, right: 4, width: 22, height: 22, borderRadius: 6, border: 'none', cursor: 'pointer', background: team.includes(w.id) ? 'var(--green)' : 'var(--gray2)', color: '#fff', fontWeight: 700 }}>{team.includes(w.id) ? '✓' : isVol(w) ? '🦺' : '＋'}</button>
             <Avatar role={w.role} size={48} spec={avatarFromWorker(w)} />
             <div className="small" style={{ color: 'var(--cream)' }}>{w.name}</div>
             <div className="small muted">{Math.round(w.rating)}</div>
@@ -138,8 +136,8 @@ export function Office() {
               <span className="tag yellow">{t(ctx.worker.rank.tier)} · {ctx.worker.rank.rating}</span>
             </div></div>
             <div className="grid c2" style={{ marginTop: 12 }}>
-              <div><div className="small muted">{t('office.projectSuccessRate')}</div><Bar value={ctx.recentPerformance.projectSuccessRate * 100} color="green" label={Math.round(ctx.recentPerformance.projectSuccessRate * 100) + '%'} /></div>
-              <div><div className="small muted">{t('office.avgBlame')}</div><Bar value={ctx.recentPerformance.averageBlame} color="red" label={Math.round(ctx.recentPerformance.averageBlame) + ''} /></div>
+              <div><div className="small muted">{t('office.winRate')}</div><Bar value={ctx.recentPerformance.winRate * 100} color="green" label={Math.round(ctx.recentPerformance.winRate * 100) + '%'} /></div>
+              <div><div className="small muted">{t('office.avgContribution')}</div><Bar value={ctx.recentPerformance.averageContribution} max={60} color="cyan" label={Math.round(ctx.recentPerformance.averageContribution) + ''} /></div>
             </div>
             <div className="row between" style={{ marginTop: 12 }}>
               <span className="small muted">{t('office.games')}: {sel.games}</span>
@@ -195,10 +193,6 @@ export function Office() {
             {keys.some((k) => k.revoked_at) && (
               <p className="small muted" style={{ marginTop: 6 }}>{keys.filter((k) => k.revoked_at).length} × revoked</p>
             )}
-
-            <h4 style={{ marginTop: 16, color: 'var(--cream)' }}>{t('office.prompt')}</h4>
-            <pre className="code" style={{ maxHeight: 160 }}>{prompt}</pre>
-            <button className="btn sm cyan" onClick={() => { navigator.clipboard.writeText(prompt); toast.show(t('common.copied')); }}>📋 {t('common.copy')}</button>
           </div>
 
           <div className="card" style={{ gridColumn: '1 / -1' }}>

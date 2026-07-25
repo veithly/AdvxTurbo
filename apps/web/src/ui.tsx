@@ -23,6 +23,12 @@ export function WalletAutoLink() {
   return null;
 }
 
+// 地址缩写：0x1eF7…6EA1
+export function shortAddr(a?: string | null): string {
+  if (!a) return '';
+  return a.length > 12 ? a.slice(0, 6) + '…' + a.slice(-4) : a;
+}
+
 // ---- config cache ----
 let configCache: any = null;
 export function useConfig() {
@@ -82,10 +88,11 @@ export function ToastHost() {
 export function Nav() {
   const t = useT();
   const { locale, setLocale } = useI18n();
-  const { user, logout } = useAuth();
+  const { user, logout, walletMeta } = useAuth();
   const nav = useNavigate();
   const [muted, setMuted] = useState(isMuted());
   const [open, setOpen] = useState(false);
+  const custodial = !!walletMeta?.custodial;
 
   const links: Array<[string, string, string]> = [
     ['/', 'nav.home', '🏠'], ['/office', 'nav.office', '🏢'], ['/lab', 'nav.agentLab', '🧪'], ['/arena', 'nav.arena', '⚔'],
@@ -117,12 +124,16 @@ export function Nav() {
       </div>
       <span className="spacer" />
       <div className="navctl">
-        <ConnectButton showBalance={false} chainStatus="icon" accountStatus="address" />
+        {custodial ? (
+          <NavLink to="/profile" className="btn sm" title={walletMeta?.address}>👛 {shortAddr(walletMeta?.address)}</NavLink>
+        ) : (
+          <ConnectButton showBalance={false} chainStatus="icon" accountStatus="address" />
+        )}
         <button className="btn sm" onClick={() => { const m = toggleMute(); setMuted(m); }} title="mute">{muted ? '🔇' : '🔊'}</button>
         <button className="btn sm" onClick={() => setLocale(locale === 'zh' ? 'en' : 'zh')}>{locale === 'zh' ? 'EN' : '中'}</button>
         {user ? (
           <>
-            <NavLink to="/profile" className="btn sm cyan">{user.display_name?.slice(0, 10) || t('nav.profile')}</NavLink>
+            <NavLink to="/profile" className="btn sm cyan">{(user.display_name && !/^0x[0-9a-fA-F…]+$/.test(user.display_name)) ? user.display_name.slice(0, 10) : t('nav.profile')}</NavLink>
             <button className="btn sm" onClick={() => { logout(); nav('/'); }}>{t('common.logout')}</button>
           </>
         ) : (

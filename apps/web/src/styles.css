@@ -237,6 +237,8 @@ table.tbl tr:nth-child(even) td { background: rgba(0,0,0,0.15); }
 .settle-crown { position: absolute; top: -14px; left: -10px; font-size: 26px; transform: rotate(-18deg); }
 .settle-best-label { color: var(--green2); font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; }
 .settle-best-name { color: var(--cream); font-size: 20px; font-weight: 700; }
+.settle-best-score { margin-top: 4px; font-size: 13px; color: var(--gray); }
+.settle-best-score b { font-size: 20px; color: var(--green2); margin-left: 4px; }
 .settle-dq { background: var(--deep); border: 3px solid var(--red2); box-shadow: 4px 4px 0 var(--black); padding: 12px 14px; margin-bottom: 14px; }
 .settle-section-title { color: var(--cream); font-weight: 700; margin-bottom: 8px; display: flex; align-items: center; gap: 8px; }
 .settle-dq-grid { display: flex; flex-wrap: wrap; gap: 8px; }

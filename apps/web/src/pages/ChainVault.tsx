@@ -35,6 +35,11 @@ export function ChainVault() {
   const [claims, setClaims] = useState<any[]>([]);
   const [anchors, setAnchors] = useState<any[]>([]);
   const [txBusy, setTxBusy] = useState('');
+  // 服务端绑定的钱包（含托管钱包）：浏览器未连钱包时用它兼容全部链上操作
+  const [walletMeta, setWalletMeta] = useState<{ address: string; custodial: boolean } | null>(null);
+  const [serverBalance, setServerBalance] = useState<string>('');
+  const activeAddress = address || walletMeta?.address || '';
+  const isCustodial = !address && !!walletMeta?.custodial;
 
   useEffect(() => {
     api.get('/api/chain/info').then(setInfo).catch(() => {});
@@ -43,8 +48,15 @@ export function ChainVault() {
       api.get('/api/workers').then(setWorkers).catch(() => {});
       api.get('/api/chain/claims').then(setClaims).catch(() => {});
       api.get('/api/chain/anchors').then(setAnchors).catch(() => {});
+      api.get('/api/auth/me').then((me) => setWalletMeta(me.walletMeta || null)).catch(() => {});
     }
   }, [user]);
+
+  // 托管/未连接场景：从服务端查真实链上余额
+  useEffect(() => {
+    if (!activeAddress) return;
+    api.get('/api/chain/balance/' + activeAddress).then((r) => setServerBalance(r.inj)).catch(() => {});
+  }, [activeAddress]);
 
   useEffect(() => { workers.forEach(loadStatus); }, [workers]);
 
@@ -74,25 +86,29 @@ export function ChainVault() {
 
   async function faucet() {
     sfx('click', 0.3);
-    if (!address) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
+    if (!activeAddress) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
     try {
-      const r = await api.post('/api/chain/faucet', { address });
+      const r = await api.post('/api/chain/faucet', { address: activeAddress });
+      if (r.ok === false) { toast.show(r.message || r.error, 'err'); return; }
       injBalance.refetch?.();
+      api.get('/api/chain/balance/' + activeAddress).then((b) => setServerBalance(b.inj)).catch(() => {});
       toast.show(t('chain.faucetOk') + (r.txHash ? ' ' + String(r.txHash).slice(0, 10) + '…' : ''));
     } catch (e) { err(e); }
   }
   async function mint(w: any) {
     sfx('click', 0.3);
-    if (!address) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
+    if (!activeAddress) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
     setTxBusy('mint' + w.id);
     try {
-      if (chainId !== 1439) await switchChainAsync({ chainId: 1439 });
-      // 1) 玩家用连接的钱包签一笔真实确认交易（钱包弹窗在此），携带 mint 承诺
-      const txHash = await sendTransactionAsync({ to: address, value: 0n, data: toHexData({ kind: 'passport_mint', workerId: w.id, at: Date.now() }) });
-      await api.post('/api/chain/record', { workerId: w.id, kind: 'passport_mint', txHash, address, chainId: 1439 });
-      // 2) 后端 relayer 把真 NFT mint 到同一个连接地址
-      await api.post('/api/chain/passport/mint', { workerId: w.id, address });
-      toast.show(t('chain.minted') + ' ' + txHash.slice(0, 10) + '…');
+      if (address) {
+        // 插件钱包：玩家先自签一笔确认交易（钱包弹窗），再由 relayer 铸 NFT
+        if (chainId !== 1439) await switchChainAsync({ chainId: 1439 });
+        const txHash = await sendTransactionAsync({ to: address, value: 0n, data: toHexData({ kind: 'passport_mint', workerId: w.id, at: Date.now() }) });
+        await api.post('/api/chain/record', { workerId: w.id, kind: 'passport_mint', txHash, address, chainId: 1439 });
+      }
+      // relayer 把真 NFT mint 到当前地址（托管钱包无需客户端签名）
+      await api.post('/api/chain/passport/mint', { workerId: w.id, address: activeAddress });
+      toast.show(t('chain.minted'));
       sfx('success');
       await loadStatus(w);
       setAnchors(await api.get('/api/chain/anchors'));
@@ -102,18 +118,20 @@ export function ChainVault() {
   }
   async function register(w: any) {
     sfx('click', 0.3);
-    if (!address) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
+    if (!activeAddress) { toast.show(t('chain.connectFirst'), 'err'); openConnectModal?.(); return; }
     setTxBusy('reg' + w.id);
     try {
-      if (chainId !== 1439) await switchChainAsync({ chainId: 1439 });
       const versions = await api.get('/api/workers/' + w.id + '/versions');
       const published = versions.filter((v: any) => v.published_at || v.status === 'published');
       const versionId = (published[published.length - 1] || versions[versions.length - 1])?.id;
-      // 玩家钱包签名确认策略登记
-      const txHash = await sendTransactionAsync({ to: address, value: 0n, data: toHexData({ kind: 'strategy_register', workerId: w.id, versionId, at: Date.now() }) });
-      await api.post('/api/chain/record', { workerId: w.id, kind: 'strategy_register', txHash, address, chainId: 1439 });
+      if (address) {
+        // 插件钱包：玩家钱包签名确认策略登记
+        if (chainId !== 1439) await switchChainAsync({ chainId: 1439 });
+        const txHash = await sendTransactionAsync({ to: address, value: 0n, data: toHexData({ kind: 'strategy_register', workerId: w.id, versionId, at: Date.now() }) });
+        await api.post('/api/chain/record', { workerId: w.id, kind: 'strategy_register', txHash, address, chainId: 1439 });
+      }
       await api.post('/api/chain/strategy/register', { workerId: w.id, versionId });
-      toast.show(t('chain.strategyReg') + ' ' + txHash.slice(0, 10) + '…');
+      toast.show(t('chain.strategyReg'));
       sfx('success');
       await loadStatus(w);
     } catch (e: any) { toast.show(e?.shortMessage || e?.data?.message || e?.message || 'tx failed', 'err'); sfx('error'); }
@@ -155,17 +173,17 @@ export function ChainVault() {
 
       <div className="card">
         <h3>{t('chain.wallet')}</h3>
-        {!address ? (
+        {!activeAddress ? (
           <>
             <p className="small muted">{t('chain.connectFirst')}</p>
             <button className="btn primary" onClick={() => openConnectModal?.()}>{t('chain.linkWallet')}</button>
           </>
         ) : (
           <>
-            <p className="small"><code>{address}</code></p>
-            <p className="small muted">{t('chain.balance')}: {injBalance.data ? (Number(injBalance.data.value) / 1e18) + ' INJ' : '—'}</p>
-            <button className="btn sm cyan" onClick={faucet}>{t('chain.faucet')}</button>
-            <a className="btn sm" href={explorerAddr(address)} target="_blank" rel="noreferrer">{t('chain.explorer')} →</a>
+            <p className="small"><code>{activeAddress}</code>{isCustodial && <span className="tag cyan" style={{ marginLeft: 6 }}>🪄 托管钱包</span>}</p>
+            <p className="small muted">{t('chain.balance')}: {address && injBalance.data ? (Number(injBalance.data.value) / 1e18) + ' INJ' : serverBalance ? serverBalance + ' INJ' : '—'}</p>
+            <button className="btn sm cyan" onClick={faucet}>{t('chain.faucet')} (0.01 INJ)</button>
+            <a className="btn sm" href={explorerAddr(activeAddress)} target="_blank" rel="noreferrer">{t('chain.explorer')} →</a>
           </>
         )}
       </div>

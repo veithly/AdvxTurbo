@@ -18,11 +18,11 @@ function makeSeed(matchId: string, participantWorkerIds: string[]) {
   return { serverSecret, serverCommit, finalSeed, finalSeedHash: sha256Prefixed('fs:' + finalSeed) };
 }
 
-/** 反串谋对手搜索 (PRD 18.5/52.3)：按 rating 接近、排除同一 user */
+/** 反串谋对手搜索 (PRD 18.5/52.3)：按 rating 接近、排除同一 user；志愿者（工作人员阵营）不作为对手 */
 export function findOpponents(worker: any, count: number): any[] {
   const rows = db
     .prepare(
-      'SELECT * FROM workers WHERE id != ? AND user_id != ? AND status = ? ORDER BY ABS(rating - ?) ASC LIMIT ?'
+      "SELECT * FROM workers WHERE id != ? AND user_id != ? AND status = ? AND COALESCE(appearance_json, '') NOT LIKE '%\"volunteer\":true%' ORDER BY ABS(rating - ?) ASC LIMIT ?"
     )
     .all(worker.id, worker.user_id, 'active', worker.rating, count * 3) as any[];
   // 取最接近的 count 个（已按 rating 距离排序）
@@ -42,10 +42,11 @@ function participantFromWorker(w: any, seat: number) {
   };
 }
 
-/** 运行一场正式排位赛 (PRD 19.1) */
-export function runRankedMatch(workerIds: string[], mode = 'ranked', tournamentId?: string, modeId = 'ranked'): { matchId: string; replay: MatchReplay } {
+/** 运行一场正式排位赛 (PRD 19.1)；staffWorkerIds 为玩家的志愿者，占用工作人员席位进入模拟 */
+export function runRankedMatch(workerIds: string[], mode = 'ranked', tournamentId?: string, modeId = 'ranked', staffWorkerIds?: string[]): { matchId: string; replay: MatchReplay } {
   const workers = workerIds.map((wid) => getWorker(wid)).filter(Boolean);
   if (workers.length < 2) throw new Error('NOT_ENOUGH_WORKERS');
+  const staffWorkers = (staffWorkerIds || []).map((wid) => getWorker(wid)).filter(Boolean).slice(0, 5);
   const matchId = id('mat');
   const seed = makeSeed(matchId, workers.map((w) => w.id));
 
@@ -59,6 +60,7 @@ export function runRankedMatch(workerIds: string[], mode = 'ranked', tournamentI
     finalSeed: seed.finalSeed,
     seedCommitment: seed.serverCommit,
     participants: workers.map((w, i) => participantFromWorker(w, i)),
+    staffParticipants: staffWorkers.map((w) => ({ workerId: w.id, name: w.name })),
   };
 
   const replay = simulateMatch(input);
@@ -94,6 +96,13 @@ export function runRankedMatch(workerIds: string[], mode = 'ranked', tournamentI
     if (mode === 'ranked') {
       db.prepare('UPDATE workers SET games=games+1, project_successes=project_successes+?, wins=wins+?, blame_sum=blame_sum+?, win_streak=CASE WHEN ? THEN win_streak+1 ELSE 0 END WHERE id=?')
         .run(p.projectSuccess ? 1 : 0, p.placement === 1 ? 1 : 0, p.finalBlame, p.placement === 1 ? 1 : 0, p.workerId);
+    }
+  }
+
+  // 志愿者工作人员：累计抓捕数与执勤场次（抓捕榜）
+  if (mode === 'ranked') {
+    for (const s of res.staff || []) {
+      if (s.volunteer) db.prepare('UPDATE workers SET catches_sum=COALESCE(catches_sum,0)+?, patrols=COALESCE(patrols,0)+1 WHERE id=?').run(s.catches, s.id);
     }
   }
 
@@ -175,8 +184,13 @@ export function hotMatches(limit = 8): any[] {
   return db.prepare('SELECT * FROM matches ORDER BY meme_heat DESC, finished_at DESC LIMIT ?').all(limit) as any[];
 }
 
-// PRD 45.4 排行榜
+// PRD 45.4 排行榜（catch = 工作人员抓捕榜：志愿者按累计抓捕数排序）
 export function leaderboard(kind = 'rating', limit = 50): any[] {
+  if (kind === 'catch') {
+    return db
+      .prepare('SELECT w.*, u.display_name AS owner FROM workers w JOIN users u ON u.id = w.user_id WHERE COALESCE(w.patrols, 0) > 0 ORDER BY COALESCE(w.catches_sum, 0) DESC, COALESCE(w.patrols, 0) ASC LIMIT ?')
+      .all(limit) as any[];
+  }
   const order = kind === 'meme' ? 'wins DESC' : kind === 'stable' ? '(project_successes*1.0/(games+1)) DESC' : 'rating DESC';
   return db
     .prepare(`SELECT w.*, u.display_name AS owner FROM workers w JOIN users u ON u.id = w.user_id WHERE w.games > 0 ORDER BY ${order} LIMIT ?`)

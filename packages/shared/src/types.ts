@@ -422,6 +422,7 @@ export interface MatchParticipantResult {
   strategyVersionId: string;
   strategyHash: string;
   finalScore: number;
+  builderScore: number; // 结算排位分：min(进度,100%) × (灵感 + 超出进度部分×10×build占比)
   placement: number;
   projectSuccess: boolean;
   finalBlame: number;
@@ -453,6 +454,8 @@ export interface MatchResult {
   titleKey: string;
   memeHeat: number;
   participants: MatchParticipantResult[];
+  // 工作人员阵营结算：谁抓的违规选手最多（volunteer = 玩家志愿者）
+  staff?: Array<{ id: string; name: string; catches: number; volunteer: boolean }>;
   responsibilityGraph: ResponsibilityGraphEntry[];
   metrics: Record<string, number>;
   resultHash: string;
@@ -479,6 +482,12 @@ export interface EngineParticipant {
   sourceCode: string;
 }
 
+// 志愿者（工作人员阵营）出战：占用 staff 席位，以工作人员身份进入模拟
+export interface StaffParticipant {
+  workerId: string;
+  name: string;
+}
+
 export interface SimulateInput {
   matchId: string;
   mode: string;
@@ -486,6 +495,7 @@ export interface SimulateInput {
   finalSeed: string;
   seedCommitment: string;
   participants: EngineParticipant[];
+  staffParticipants?: StaffParticipant[];
 }
 
 // ---------------------------------------------------------------------------

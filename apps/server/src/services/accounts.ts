@@ -36,6 +36,15 @@ export function guest(locale = 'zh'): { user: User; token: string } {
   return { user: getUser(uid)!, token: createSession(uid) };
 }
 
+/** 无钱包玩家：创建正式账户（后续绑定托管钱包） */
+export function custodialUser(locale = 'zh'): { user: User; token: string } {
+  const uid = id('usr');
+  db.prepare(
+    'INSERT INTO users (id, display_name, email, password_hash, locale, status, created_at, last_active_at) VALUES (?,?,?,?,?,?,?,?)'
+  ).run(uid, '选手-' + uid.slice(-4), uid + '@custody.advx', '', locale, 'active', now(), now());
+  return { user: getUser(uid)!, token: createSession(uid) };
+}
+
 export function createSession(userId: string): string {
   const t = token();
   db.prepare('INSERT INTO sessions (token, user_id, created_at) VALUES (?,?,?)').run(t, userId, now());

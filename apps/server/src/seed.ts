@@ -41,7 +41,7 @@ for (let i = 0; i < 8; i++) {
   // 绑定钱包 + 领水 + 铸 Passport (前 6 位玩家)
   const addr = '0x' + (i + 1).toString().padStart(40, '0');
   accounts.linkWallet(user.id, addr, chain.chainInfo().chainId);
-  if (i < 6) chain.faucet(addr);
+  if (i < 6) void chain.faucet(addr); // seed 未 initChain，走 mock 路径，不会真发币
 
   // 6 种角色轮流，让猫/水豚/鹅/浣熊/柴犬/仓鼠六种动物都出现
   const SEED_ROLES: RoleId[] = ['engineer', 'pm', 'qa', 'sre', 'designer', 'intern'];

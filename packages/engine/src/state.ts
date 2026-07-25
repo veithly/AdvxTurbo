@@ -57,6 +57,7 @@ export interface EngineWorker extends WorkerState {
   custodyResponsibility: number;
   heroicFix: boolean;
   confessed: boolean;
+  builderScore?: number; // 结算排位分（见 audit.ts settle）
   auditActionType?: string;
   // —— 抓热点机制 ——
   hotspotOn: boolean;      // 是否正在开热点
@@ -74,14 +75,18 @@ export interface EngineWorker extends WorkerState {
   sponsorCdUntil: number;  // 展商发道具冷却结束 tick
 }
 
-// 工作人员（AI，逐个排查，重合才捕捉）
+// 工作人员（AI 或玩家志愿者，逐个排查，重合才捕捉）
 export interface StaffAgent {
   id: string;
+  name: string;
+  volunteer: boolean;      // 玩家志愿者（真实 workerId）还是 AI 工作人员
   position: [number, number];
   facing: [number, number];
   zone: string;
   targetId?: string;
   routeIdx: number;
+  energy: number;          // 精力 0~100：决定巡逻速度，传送消耗
+  catches: number;         // 本局抓捕数（抓捕榜）
   rng: Rng;
 }
 
@@ -199,12 +204,13 @@ export function initState(input: SimulateInput): MatchState {
     distractedUntilTick: -1,
   };
 
-  // 5 名工作人员（AI 逐个排查）
+  // 5 名工作人员（AI 逐个排查）；玩家的志愿者顶替前几个席位（真实 workerId，前端据此切到工作人员视角）
   const staffSpots: Array<[number, number]> = [[16, 10], [10, 2], [16, 2], [3, 6], [13, 6]];
   const staff: StaffAgent[] = [];
   for (let i = 0; i < STAFF_COUNT; i++) {
     const sp = staffSpots[i % staffSpots.length];
-    staff.push({ id: 'staff' + i, position: [sp[0], sp[1]], facing: [-1, 0], zone: zoneAt(sp[0], sp[1]), routeIdx: i * 2, rng: new Rng(subStreamSeed(input.finalSeed, 'staff:' + i)) });
+    const vol = input.staffParticipants?.[i];
+    staff.push({ id: vol ? vol.workerId : 'staff' + i, name: vol ? vol.name : '工作人员' + (i + 1), volunteer: !!vol, position: [sp[0], sp[1]], facing: [-1, 0], zone: zoneAt(sp[0], sp[1]), routeIdx: i * 2, energy: 100, catches: 0, rng: new Rng(subStreamSeed(input.finalSeed, 'staff:' + i)) });
   }
 
   return {

@@ -12,6 +12,7 @@ interface User {
 interface AuthState {
   user: User | null;
   wallet: any | null;
+  walletMeta: { address: string; custodial: boolean } | null;
   loading: boolean;
   init: () => Promise<void>;
   login: (email: string, password: string) => Promise<void>;
@@ -29,13 +30,14 @@ function setToken(token: string) {
 export const useAuth = create<AuthState>((set, get) => ({
   user: null,
   wallet: null,
+  walletMeta: null,
   loading: true,
   init: async () => {
     const token = localStorage.getItem('token');
     if (!token) return set({ loading: false });
     try {
-      const { user, wallet } = await api.get('/api/auth/me');
-      set({ user, wallet, loading: false });
+      const { user, wallet, walletMeta } = await api.get('/api/auth/me');
+      set({ user, wallet, walletMeta: walletMeta || null, loading: false });
     } catch {
       localStorage.removeItem('token');
       set({ user: null, loading: false });
@@ -60,12 +62,12 @@ export const useAuth = create<AuthState>((set, get) => ({
   },
   logout: () => {
     localStorage.removeItem('token');
-    set({ user: null, wallet: null });
+    set({ user: null, wallet: null, walletMeta: null });
   },
   refreshWallet: async () => {
     try {
-      const { wallet } = await api.get('/api/auth/me');
-      set({ wallet });
+      const { wallet, walletMeta } = await api.get('/api/auth/me');
+      set({ wallet, walletMeta: walletMeta || null });
     } catch {}
   },
 }));

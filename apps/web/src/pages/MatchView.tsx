@@ -10,7 +10,7 @@ import { Avatar, Bar, StatusTag, Loading, useToast } from '../ui.js';
 import { ProviderLogo } from '../ProviderLogo.js';
 import { sfx } from '../audio.js';
 
-const HOT_KINDS = ['bug_spawn', 'bug_exploded', 'incident_phase', 'ship', 'disqualified', 'boss_caught', 'force_assign', 'skill_rollback', 'event', 'match_end'];
+const HOT_KINDS = ['bug_spawn', 'bug_exploded', 'incident_phase', 'ship', 'disqualified', 'boss_caught', 'force_assign', 'skill_rollback', 'event', 'match_end', 'staff_teleport'];
 const GAME_MODE_EMOJI: Record<string, string> = { ranked: '⚖️', credit_war: '🏆', zero_incident: '🛡️', slack_master: '😎', intern_uprising: '🐹', friday_raid: '🌙' };
 // 事件 -> 人物头顶气泡台词
 const EVENT_BUBBLE: Record<string, string> = { bug_fixed: 'bubble.fix', ship: 'bubble.ship', boss_caught: 'bubble.caught', force_assign: 'bubble.dump', skill_rollback: 'bubble.rollback', bug_exploded: 'bubble.explode' };
@@ -31,14 +31,15 @@ export function MatchView() {
   const timerRef = useRef<any>(null);
   const lastEventTick = useRef(-1);
   const [ownIds, setOwnIds] = useState<Set<string>>(new Set());
-  const [volunteers, setVolunteers] = useState<Array<{ name: string; spec?: any }>>([]);
+  const [volunteers, setVolunteers] = useState<Array<{ id: string; name: string; spec?: any }>>([]);
+  const [staffInfo, setStaffInfo] = useState<Record<string, { name: string; spec?: any }>>({});
 
   useEffect(() => {
-    // 拉取当前玩家自己的选手（圈 YOU）与志愿者（到场执勤，顶替工作人员形象）
+    // 拉取当前玩家自己的选手（圈 YOU）与志愿者（以工作人员身份上岗执勤）
     api.get('/api/workers').then((ws: any[]) => {
       setOwnIds(new Set((ws || []).map((w) => w.id)));
-      const vols: Array<{ name: string; spec?: any }> = [];
-      for (const w of ws || []) { try { const a = JSON.parse(w.appearance_json || '{}'); if (a.volunteer) vols.push({ name: w.name, spec: a.charSpec }); } catch {} }
+      const vols: Array<{ id: string; name: string; spec?: any }> = [];
+      for (const w of ws || []) { try { const a = JSON.parse(w.appearance_json || '{}'); if (a.volunteer) vols.push({ id: w.id, name: w.name, spec: a.charSpec }); } catch {} }
       setVolunteers(vols);
     }).catch(() => {});
   }, []);
@@ -52,6 +53,21 @@ export function MatchView() {
     }).catch(() => toast.show('not found', 'err'));
     api.get('/api/matches/' + id).then((m) => setParts(m.participants || [])).catch(() => {});
   }, [id]);
+
+  useEffect(() => {
+    // 工作人员席位上的志愿者（真实 workerId）：从公开接口拉形象/名字，不依赖观看者的登录身份
+    if (!replay?.frames?.[0]) return;
+    const ids = replay.frames[0].workers.filter((w: any) => w.label === 'staff' && !/^staff\d+$/.test(w.id)).map((w: any) => w.id);
+    if (!ids.length) return;
+    Promise.all(ids.map((wid: string) => api.get('/api/workers/' + wid).then((w: any) => {
+      let spec; try { spec = JSON.parse(w.appearance_json || '{}').charSpec; } catch {}
+      return [wid, { name: w.name, spec }] as const;
+    }).catch(() => null))).then((entries) => {
+      const m: Record<string, { name: string; spec?: any }> = {};
+      for (const e of entries) if (e) m[e[0]] = e[1];
+      setStaffInfo(m);
+    });
+  }, [replay]);
 
   useEffect(() => {
     if (!playing || !replay) return;
@@ -96,18 +112,25 @@ export function MatchView() {
     roles[p.workerId] = p.role;
     specs[p.workerId] = workerSpec(p.workerId, pById[p.workerId]?.appearance_json);
   });
-  const nameFor = (wid: string) => pById[wid]?.worker_name || t('role.' + (roles[wid] || 'engineer'));
+  const nameFor = (wid: string) => pById[wid]?.worker_name || staffInfo[wid]?.name || (/^staff\d+$/.test(wid) ? t('common.staff') : t('role.' + (roles[wid] || 'engineer')));
   const names: Record<string, string> = {};
   res.participants.forEach((p) => { names[p.workerId] = nameFor(p.workerId); });
-  // 自己的志愿者到场执勤：顶替工作人员的形象与名字（纯观感）
-  volunteers.forEach((v, i) => { const sid = 'staff' + i; if (v.spec) specs[sid] = v.spec; names[sid] = v.name; });
+  // 工作人员席位：新回放里志愿者用真实 workerId 占位（引擎 staffParticipants）
+  const staffFrameIds = new Set(frame.workers.filter((w) => (w as any).label === 'staff').map((w) => w.id));
+  const hasRealStaff = [...staffFrameIds].some((sid) => !/^staff\d+$/.test(sid));
+  // 形象/名字：任何观看者都能看到志愿者的自定义形象（公开接口）
+  Object.entries(staffInfo).forEach(([wid, info]) => { if (info.spec) specs[wid] = info.spec; names[wid] = info.name; });
+  // 自己的志愿者在执勤 → 切到工作人员视角
+  const staffPov = [...staffFrameIds].some((sid) => ownIds.has(sid));
+  // 旧回放兼容：没有真实 id 时，自己的志愿者仅顶替工作人员的形象与名字（纯观感）
+  if (!hasRealStaff) volunteers.forEach((v, i) => { const sid = 'staff' + i; if (v.spec) specs[sid] = v.spec; names[sid] = v.name; });
   const realIds = new Set(res.participants.map((p) => p.workerId));
   const builderFrames = frame.workers.filter((w) => realIds.has(w.id));
 
   const shownEvents = replay.timeline.filter((e) => e.tick <= frame.tick && HOT_KINDS.includes(e.kind)).slice(-40).reverse();
   const champion = [...res.participants].sort((a, b) => a.placement - b.placement)[0];
-  // 最佳 Builder：build（有效贡献）最高的真实参赛者
-  const bestBuilder = [...res.participants].sort((a, b) => (b.verifiedContribution - a.verifiedContribution) || (a.placement - b.placement))[0];
+  // 最佳 Builder：结算排位分（builderScore）最高的真实参赛者
+  const bestBuilder = [...res.participants].sort((a, b) => (((b as any).builderScore ?? 0) - ((a as any).builderScore ?? 0)) || (a.placement - b.placement))[0];
   // 被取消参赛资格：整局 timeline 里所有 disqualified 事件（含 AI 群演），去重保留顺序
   const dqIds: string[] = [];
   for (const e of replay.timeline) { if (e.kind === 'disqualified' && e.workerId && !dqIds.includes(e.workerId)) dqIds.push(e.workerId); }
@@ -183,12 +206,13 @@ export function MatchView() {
                 <div>
                   <div className="settle-best-label">{t('settle.bestBuilder')}</div>
                   <div className="settle-best-name">{nameFor(bestBuilder.workerId)}{bestBuilder.secretObjectiveAchieved && ' ⭐'}</div>
-                  <div className="small muted">{t('role.' + bestBuilder.role)} · {t('settle.buildScore')} {bestBuilder.verifiedContribution} · #{bestBuilder.placement}</div>
+                  <div className="small muted">{t('role.' + bestBuilder.role)} · 🔨 {t('settle.buildScore')} {bestBuilder.verifiedContribution}</div>
+                  <div className="settle-best-score">{t('settle.rankScore')} <b>{Math.round((bestBuilder as any).builderScore ?? 0)}</b></div>
                 </div>
               </div>
             )}
 
-            {/* 被取消参赛资格 */}
+            {/* 被取消参赛资格 + 抓捕之星 */}
             <div className="settle-dq">
               <div className="settle-section-title">🚫 {t('settle.dqList')} <span className="tag red">{t('settle.dqCount').replace('{n}', String(dqIds.length))}</span></div>
               {dqIds.length === 0 ? (
@@ -203,11 +227,18 @@ export function MatchView() {
                   ))}
                 </div>
               )}
+              {(() => {
+                const staffRes = ((res as any).staff || []) as Array<{ id: string; name: string; catches: number; volunteer: boolean }>;
+                const bs = [...staffRes].sort((a, b) => b.catches - a.catches)[0];
+                return bs && bs.catches > 0 ? (
+                  <div className="small" style={{ marginTop: 8 }}>🦺 {t('settle.bestStaff')}: <b style={{ color: 'var(--red2)' }}>{names[bs.id] || bs.name}</b> · 🚨×{bs.catches}{bs.volunteer && ' ⭐'}</div>
+                ) : null;
+              })()}
             </div>
 
             {/* 完整名次 */}
             <table className="tbl settle-tbl">
-              <thead><tr><th>#</th><th>{t('leaderboard.provider')}</th><th>{t('common.you')}</th><th>{t('settle.buildScore')}</th><th>{t('replay.finalScore')}</th></tr></thead>
+              <thead><tr><th>#</th><th>{t('leaderboard.provider')}</th><th>{t('common.you')}</th><th>{t('settle.buildScore')}</th><th>{t('settle.rankScore')}</th></tr></thead>
               <tbody>
                 {[...res.participants].sort((a, b) => a.placement - b.placement).map((p) => {
                   const mp = pById[p.workerId];
@@ -217,7 +248,7 @@ export function MatchView() {
                       <td><ProviderLogo id={mp?.agent_tool} size={20} /></td>
                       <td>{nameFor(p.workerId)}{p.scapegoat && ' 🐐'}{p.secretObjectiveAchieved && ' ⭐'}</td>
                       <td>{p.verifiedContribution}</td>
-                      <td>{p.finalScore}</td>
+                      <td><b>{Math.round((p as any).builderScore ?? 0)}</b></td>
                     </tr>
                   );
                 })}
@@ -243,7 +274,8 @@ export function MatchView() {
       {/* 目标栏：明确告诉玩家这一局的目标 + 进度 */}
       <div className="objective">
         <div className="row between">
-          <div className="obj-title">🎯 {t('obj.goal')}</div>
+          <div className="obj-title">{staffPov ? '🦺 ' + t('obj.goalStaff') : '🎯 ' + t('obj.goal')}</div>
+          {staffPov && <span className="tag red">🦺 {t('match.staffPov')}</span>}
         </div>
         <div className="obj-conds">
           {goals.map((g) => { const met = goalMet(g); return (
@@ -256,7 +288,7 @@ export function MatchView() {
 
       {/* 全宽大舞台 */}
       <div className="stage-wrap">
-        <OfficeCanvas frame={frame} roles={roles} names={names} specs={specs} bubbles={bubbles} ownIds={ownIds} height={640} />
+        <OfficeCanvas frame={frame} roles={roles} names={names} specs={specs} bubbles={bubbles} ownIds={ownIds} pov={staffPov ? 'staff' : 'builder'} height={640} />
       </div>
 
       {/* 播放控制 */}
@@ -295,6 +327,16 @@ export function MatchView() {
           </div>
 
           <div className="hud" style={{ marginTop: 10 }}>
+            {/* 自己的志愿者执勤卡：只有精力（影响巡逻速度/传送）与抓捕数，没有 build/灵感 */}
+            {frame.workers.filter((w: any) => w.label === 'staff' && ownIds.has(w.id)).map((w: any) => (
+              <div key={w.id} className="who" style={{ flexDirection: 'column', alignItems: 'stretch', border: '2px solid var(--red)' }}>
+                <div className="row"><Avatar role="boss" spec={specs[w.id]} size={40} /><div><div className="small" style={{ color: 'var(--cream)' }}>{names[w.id] || t('common.staff')}</div><div className="small muted">🦺 {t('match.staffPov')}</div></div></div>
+                <Bar value={w.energy} color="yellow" label={'⚡' + w.energy} />
+                <div className="who-stats">
+                  <span className="who-stat" style={{ color: 'var(--red2)' }}>🚨 {t('hud.catches')}<b>{w.contribution}</b></span>
+                </div>
+              </div>
+            ))}
             {res.participants.map((p) => {
               const w = frame.workers.find((x) => x.id === p.workerId);
               return (
@@ -373,6 +415,7 @@ function narrate(t: (k: string, f?: string) => string, e: any, nameFor: (w: stri
     case 'bug_fixed': return `🔧 ${who} ${t('cm.fixed')}`;
     case 'ship': return `🚀 ${who || ''} ${t('cm.shipped')}`;
     case 'disqualified': return `🚫 ${t('cm.dq').replace('{who}', who)}`;
+    case 'staff_teleport': return `🌀 ${t('cm.teleport').replace('{who}', who)}`;
     case 'boss_caught': return `🦺 ${t('cm.caught').replace('{who}', who)}`;
     case 'force_assign': return `🎯 ${t('cm.forceAssign').replace('{who}', who)}`;
     case 'incident_phase': return `🚨 ${t('cm.incident')}`;

@@ -154,9 +154,29 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
   const modeScore = new Map<string, number>();
   for (const w of real) modeScore.set(w.id, modeScoreFor(w, winCond, projectSuccess, caughtCount(w.id)));
 
+  // 结算排位分（用户方案）：项目完成度门槛 × (个人灵感 + 超出100%进度部分×10 按 build 占比分摊)
+  // - progressGate = min(进度,100)/100：项目没做完则整体缩水，做满得满门槛
+  // - overflow = max(0, 进度-100)：超出部分乘 10 形成奖励池，按各 builder 的 build 占比分给个人
+  const progress = state.releaseProgress;
+  const progressGate = clamp(progress, 0, 100) / 100;
+  const overflow = Math.max(0, progress - 100);
+  const totalBuild = real.reduce((s, w) => s + w.verifiedContribution, 0) || 1;
+  for (const w of real) {
+    // 被取消资格者不参与排位分
+    if (w.disqualified) { w.builderScore = 0; continue; }
+    const share = w.verifiedContribution / totalBuild;
+    w.builderScore = Math.round(progressGate * (w.inspiration + overflow * 10 * share) * 100) / 100;
+  }
+
   const ranked = [...real].sort((a, b) => {
+    if (a.disqualified !== b.disqualified) return a.disqualified ? 1 : -1; // 取消资格者永远排最后
     const ma = modeScore.get(a.id)!, mb = modeScore.get(b.id)!;
-    if (mb !== ma) return mb - ma;
+    // 标准计分模式用新的排位分作为主排序；特殊关卡仍以 modeScore 为准
+    if (winCond === 'score') {
+      if ((b.builderScore || 0) !== (a.builderScore || 0)) return (b.builderScore || 0) - (a.builderScore || 0);
+    } else if (mb !== ma) {
+      return mb - ma;
+    }
     if (b.finalScore! !== a.finalScore!) return b.finalScore! - a.finalScore!;
     if (b.verifiedContribution !== a.verifiedContribution) return b.verifiedContribution - a.verifiedContribution;
     if (a.finalBlame !== b.finalBlame) return a.finalBlame - b.finalBlame;
@@ -178,6 +198,7 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
       strategyVersionId: w.strategyVersionId,
       strategyHash: w.strategyHash,
       finalScore: w.finalScore!,
+      builderScore: w.builderScore ?? 0,
       placement: w.placement!,
       projectSuccess,
       finalBlame: w.finalBlame,
@@ -231,6 +252,7 @@ export function settle(state: MatchState, projectSuccess: boolean, resultStatus:
     titleKey,
     memeHeat,
     participants,
+    staff: state.staff.map((s) => ({ id: s.id, name: s.name, catches: s.catches, volunteer: s.volunteer })),
     responsibilityGraph,
     metrics,
     resultHash,

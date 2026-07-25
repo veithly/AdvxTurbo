@@ -149,3 +149,58 @@ export function passportMetadata(input: PassportArtInput): { json: string; token
   const metadataHash = ethers.keccak256(ethers.toUtf8Bytes(json));
   return { json, tokenURI, metadataHash };
 }
+
+// ============================================================================
+// 商店装饰品 NFT 卡片 —— 与 web/src/pixelart.ts drawProp 同源画法（50×50 画布）
+// ============================================================================
+function drawPropSvg(r: SvgR, n: string) {
+  if (n.includes('bug')) {
+    const col: Record<string, string> = { red_bug: P.r, green_bug: P.g, purple_bug: P.p, hidden_bug: P.dg };
+    r.box(10, 12, 28, 24, col[n] || P.r);
+    for (const [x, y] of [[7, 18], [38, 18], [7, 27], [38, 27]]) r.px(x, y, 5, 3, P.o);
+    r.px(15, 18, 5, 5, P.o); r.px(30, 18, 5, 5, P.o);
+  } else if (n === 'coffee') { r.box(13, 14, 22, 25, P.w); r.px(35, 20, 6, 10, P.o); r.px(16, 17, 16, 5, '#5C3826'); }
+  else if (n === 'ticket') { r.box(9, 8, 32, 34, P.c); for (const y of [14, 20, 26, 32]) r.px(14, y, 20, 2, '#7A828E'); }
+  else if (n === 'ppt') { r.box(8, 10, 34, 29, P.w); r.px(12, 14, 12, 5, P.r); r.px(12, 23, 24, 3, P.y); }
+  else if (n === 'server') { r.box(12, 6, 26, 38, P.dg); for (const y of [10, 18, 26, 34]) { r.px(16, y, 15, 4, '#101217'); r.px(33, y, 2, 2, P.g); } }
+  else { r.box(10, 12, 28, 24, P.y); } // 未知道具回退：黄色方块
+}
+
+/** 装饰品卡片 SVG（400×400）：8-bit 道具 + 名字 */
+export function itemCardSvg(prop: string, itemName: string): string {
+  const r = new SvgR();
+  drawPropSvg(r, prop);
+  const nm = itemName.slice(0, 26);
+  const fontSize = nm.length <= 12 ? 28 : nm.length <= 20 ? 22 : 18;
+  return [
+    `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400" viewBox="0 0 400 400">`,
+    `<rect width="400" height="400" fill="${P.db}"/>`,
+    `<rect x="10" y="10" width="380" height="380" fill="${P.o}" stroke="${P.cy}" stroke-width="4"/>`,
+    `<text x="200" y="42" text-anchor="middle" font-family="monospace" font-size="15" letter-spacing="2" fill="${P.cy}">ADVX TURBO &#183; STORE ITEM</text>`,
+    // 道具：50×50 放大 5.2 倍 = 260×260，居中
+    `<g transform="translate(70,66) scale(5.2)" shape-rendering="crispEdges">${r.parts.join('')}</g>`,
+    `<text x="200" y="362" text-anchor="middle" font-family="monospace" font-weight="bold" font-size="${fontSize}" fill="${P.w}">${esc(nm)}</text>`,
+    `<text x="200" y="384" text-anchor="middle" font-family="monospace" font-size="13" letter-spacing="3" fill="${P.y}">COSMETIC NFT</text>`,
+    `</svg>`,
+  ].join('');
+}
+
+/** 装饰品 ERC-721 metadata（data:URI，完全上链，钱包/浏览器可直接显示图片） */
+export function itemMetadata(prop: string, itemName: string, priceCp: number): { json: string; tokenURI: string; metadataHash: string } {
+  const svg = itemCardSvg(prop, itemName);
+  const image = 'data:image/svg+xml;base64,' + Buffer.from(svg, 'utf8').toString('base64');
+  const meta = {
+    name: `${itemName} · ADVX Item`,
+    description: `ADVX TURBO decorative store item (cosmetic only, no win-rate). Bought with ${priceCp} Coffee Points.`,
+    image,
+    attributes: [
+      { trait_type: 'Kind', value: 'cosmetic' },
+      { trait_type: 'Prop', value: prop },
+      { trait_type: 'Price (CP)', value: priceCp },
+    ],
+  };
+  const json = JSON.stringify(meta);
+  const tokenURI = 'data:application/json;base64,' + Buffer.from(json, 'utf8').toString('base64');
+  const metadataHash = ethers.keccak256(ethers.toUtf8Bytes(json));
+  return { json, tokenURI, metadataHash };
+}

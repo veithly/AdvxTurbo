@@ -25,8 +25,13 @@ RUN npm ci --include=dev
 COPY packages/shared packages/shared
 COPY packages/engine packages/engine
 COPY apps/server apps/server
+COPY apps/web apps/web
 COPY assets_audio assets_audio
 COPY blame_game_8bit_assets_v2 blame_game_8bit_assets_v2
+
+# 构建前端静态包。server 的 index.ts 会自动托管 apps/web/dist（存在时），
+# 于是单容器同时提供 前端 + /api + /ws，前端走相对路径无需 VITE_API_URL。
+RUN npm run build -w @blame/web
 
 # 依赖装完后再切生产模式，避免影响上面的 devDependencies 安装
 ENV NODE_ENV=production

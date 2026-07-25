@@ -92,8 +92,10 @@ export function workerContext(workerId: string) {
     .all(workerId) as any[];
   const games = recent.length;
   const successRate = games ? recent.filter((r) => r.project_success).length / games : 0;
+  const winRate = games ? recent.filter((r) => r.placement === 1).length / games : 0;
   const avgPlacement = games ? recent.reduce((s, r) => s + r.placement, 0) / games : 0;
   const avgBlame = games ? recent.reduce((s, r) => s + r.final_blame, 0) / games : 0;
+  const avgContribution = games ? recent.reduce((s, r) => s + (r.verified_contribution || 0), 0) / games : 0;
   const passport = getPassport(workerId);
   const dailySims = (db.prepare("SELECT COUNT(*) AS c FROM simulation_runs WHERE worker_id=? AND created_at LIKE ?").get(workerId, new Date().toISOString().slice(0, 10) + '%') as any).c;
   return {
@@ -117,8 +119,10 @@ export function workerContext(workerId: string) {
     },
     recentPerformance: {
       projectSuccessRate: round3(successRate),
+      winRate: round3(winRate),
       averagePlacement: round3(avgPlacement),
       averageBlame: round3(avgBlame),
+      averageContribution: round3(avgContribution),
       invalidActionRate: 0.009,
     },
     chain: {

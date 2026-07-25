@@ -9,6 +9,8 @@ import * as chain from './chain/gateway.js';
 import { generateAppearance } from './services/appearance.js';
 import { buildPetPackage } from './services/codexPet.js';
 import * as economy from './services/economy.js';
+import * as custody from './services/custody.js';
+import * as store from './services/store.js';
 import { db } from './db.js';
 
 export const api = Router();
@@ -99,9 +101,28 @@ api.post('/auth/wallet', (req, res) => {
   }
 });
 
+// 无钱包玩家：一键创建账户 + 内置托管钱包，relayer 自动注资 0.01 INJ gas
+api.post('/auth/custodial', async (req, res) => {
+  const { user, token } = accounts.custodialUser(req.body?.locale || 'zh');
+  const wallet = await custody.createCustodialWallet(user.id);
+  res.json({ user, token, custodialWallet: wallet });
+});
+
+// 已登录但没绑钱包的用户：补建托管钱包（幂等）
+api.post('/wallet/custodial/create', requireUser, async (req: AuthedReq, res) => {
+  res.json(await custody.createCustodialWallet(req.user!.id));
+});
+
+// 导出内置托管钱包私钥（仅本人；非托管钱包返回 404）
+api.post('/wallet/custodial/export', requireUser, (req: AuthedReq, res) => {
+  const exported = custody.exportPrivateKey(req.user!.id);
+  if (!exported) return res.status(404).json({ code: 'NOT_CUSTODIAL' });
+  res.json(exported);
+});
+
 api.get('/auth/me', requireUser, (req: AuthedReq, res) => {
   const wallet = accounts.walletFor(req.user!.id);
-  res.json({ user: req.user, wallet });
+  res.json({ user: req.user, wallet, walletMeta: custody.walletMeta(req.user!.id) });
 });
 
 api.post('/auth/locale', requireUser, (req: AuthedReq, res) => {
@@ -217,14 +238,18 @@ api.post('/matches/queue', requireUser, (req: AuthedReq, res) => {
   // 支持多队友：workerIds 为玩家自己的一组员工（均需拥有），均为真实参赛者
   const team: string[] = (Array.isArray(workerIds) && workerIds.length ? workerIds : [workerId]).filter(Boolean).slice(0, 8);
   if (team.length === 0 || !team.every((wid) => ownsWorker(req, wid))) return res.status(403).json({ code: 'FORBIDDEN' });
-  const total = Math.max(players || 4, team.length);
-  const need = total - team.length;
-  const w = workers.getWorker(team[0]);
+  // 志愿者（工作人员阵营）分流：不当选手，而是占用工作人员席位、以工作人员视角执勤
+  const isVolunteer = (wid: string) => { try { return !!JSON.parse(workers.getWorker(wid)?.appearance_json || '{}').volunteer; } catch { return false; } };
+  const staffTeam = team.filter(isVolunteer).slice(0, 5);
+  const builders = team.filter((wid) => !staffTeam.includes(wid));
+  const total = Math.max(players || 4, builders.length, 2);
+  const need = total - builders.length;
+  const w = workers.getWorker(builders[0] || team[0]);
   const opp = need > 0 ? matches.findOpponents(w, need) : [];
-  if (team.length < 2 && opp.length < 1) return res.status(409).json({ code: 'NO_OPPONENTS', message: '暂无可匹配对手，请先创建更多员工或运行 seed' });
-  const ids = [...team, ...opp.map((o) => o.id)];
-  const { matchId } = matches.runRankedMatch(ids, mode || 'ranked', undefined, mode || 'ranked');
-  res.json({ matchId, mode: mode || 'ranked', team, opponents: opp.map((o) => ({ id: o.id, name: o.name, role: o.role, rating: Math.round(o.rating) })) });
+  if (builders.length + opp.length < 2) return res.status(409).json({ code: 'NO_OPPONENTS', message: '暂无可匹配对手，请先创建更多员工或运行 seed' });
+  const ids = [...builders, ...opp.map((o) => o.id)];
+  const { matchId } = matches.runRankedMatch(ids, mode || 'ranked', undefined, mode || 'ranked', staffTeam);
+  res.json({ matchId, mode: mode || 'ranked', team, staff: staffTeam, opponents: opp.map((o) => ({ id: o.id, name: o.name, role: o.role, rating: Math.round(o.rating) })) });
 });
 
 api.post('/matches/challenge', requireUser, (req: AuthedReq, res) => {
@@ -319,14 +344,19 @@ api.post('/chain/erc8004/register', requireUser, async (req: AuthedReq, res) => 
   res.json(r);
 });
 
+// 商店购买：真扣 CP；链上件 mint 真 NFT 到玩家钱包（失败自动退款）
 api.post('/chain/store/mint', requireUser, async (req: AuthedReq, res) => {
-  const { item, name, address } = req.body || {};
-  const to = (address || accounts.walletFor(req.user!.id)?.address_normalized || '').toLowerCase();
-  if (!to.startsWith('0x')) return res.status(400).json({ code: 'NO_WALLET', message: '请先连接钱包，装饰品 NFT 会 mint 到你自己的钱包' });
-  const uri = `advx://item/${item || 'cosmetic'}?name=${encodeURIComponent(name || '')}`;
-  const r = await chain.mintItemOnChain(to, uri);
+  const { item } = req.body || {};
+  const r = await store.buyItem(req.user!.id, item || '');
+  if ('error' in r && r.error) {
+    const code = { NO_WALLET: 400, INSUFFICIENT_CP: 400, ALREADY_OWNED: 409, ITEM_NOT_FOUND: 404 }[r.error as string] || 500;
+    return res.status(code).json({ code: r.error, message: (r as any).message });
+  }
   res.json(r);
 });
+// 商店目录（价格以服务端为准）与我的库存
+api.get('/store/catalog', (_req, res) => res.json(store.STORE_ITEMS));
+api.get('/store/inventory', requireUser, (req: AuthedReq, res) => res.json({ items: store.inventoryFor(req.user!.id), balance: economy.balance(req.user!.id) }));
 
 const rewardClaimed = new Map<string, string>(); // userId -> day（小额 INJ，每日限领 1 次）
 api.post('/chain/reward/claim', requireUser, async (req: AuthedReq, res) => {
@@ -339,13 +369,13 @@ api.post('/chain/reward/claim', requireUser, async (req: AuthedReq, res) => {
   res.json(r);
 });
 api.get('/chain/events', (_req, res) => res.json(chain.recentChainEvents(50)));
-api.post('/chain/faucet', requireUser, (req: AuthedReq, res) => {
+api.post('/chain/faucet', requireUser, async (req: AuthedReq, res) => {
   const wallet = accounts.walletFor(req.user!.id);
   const addr = req.body?.address || wallet?.address_normalized;
   if (!addr) return res.status(400).json({ code: 'NO_WALLET', message: '请先绑定钱包' });
-  res.json(chain.faucet(addr));
+  res.json(await chain.faucet(addr));
 });
-api.get('/chain/balance/:address', (req, res) => res.json({ address: req.params.address, inj: chain.balanceOf(req.params.address, 'INJ') }));
+api.get('/chain/balance/:address', async (req, res) => res.json(await chain.chainBalanceOf(req.params.address)));
 // live 模式：把已有 passport 真实铸到链上（可指定 owner 为用户真实钱包）
 api.post('/chain/passport/anchor', requireUser, async (req: AuthedReq, res) => {
   const { workerId, owner } = req.body || {};
